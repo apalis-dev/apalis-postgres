@@ -7,47 +7,38 @@ use std::{
     task::{Context, Poll},
 };
 
+use crate::{
+    Config, InsertEvent, PgTask, PostgresStorage, ack::PgAck, context::PgContext,
+    fetcher::PgFetcher, register,
+};
+use crate::{from_row::TaskRow, sink::PgSink};
 use apalis_core::{
     backend::{
-        codec::{json::JsonCodec, Codec},
+        Backend, TaskStream,
+        codec::{Codec, json::JsonCodec},
         shared::MakeShared,
-        Backend, BackendWithSink, TaskStream,
     },
-    task::{
-        task_id::{TaskId, Ulid},
-        Task,
-    },
+    task::{Task, task_id::TaskId},
     worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
 use chrono::Utc;
 use futures::{
+    FutureExt, SinkExt, Stream, StreamExt, TryStreamExt,
     channel::mpsc::{self, Receiver, Sender},
     future::{self, BoxFuture, Shared},
     lock::Mutex,
-    stream::{self, select, BoxStream},
-    FutureExt, SinkExt, Stream, StreamExt, TryStreamExt,
+    stream::{self, BoxStream, select},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
-use sqlx::{postgres::PgListener, PgPool};
-
-use crate::{
-    context::SqlMetadata,
-    postgres::{fetcher::PgFetcher, register, CompactT, PgAck, PgSink, PgTask, PostgresStorage},
-    Config,
-};
+use sqlx::{PgPool, postgres::PgListener};
+use ulid::Ulid;
 
 pub struct SharedPostgresStorage<Compact = Value, Codec = JsonCodec<Value>> {
     pool: PgPool,
     registry: Arc<Mutex<HashMap<String, Sender<TaskId>>>>,
     drive: Shared<BoxFuture<'static, ()>>,
     _marker: PhantomData<(Compact, Codec)>,
-}
-
-#[derive(Debug, Deserialize)]
-struct InsertEvent {
-    job_type: String,
-    id: TaskId,
 }
 
 impl SharedPostgresStorage {
@@ -70,8 +61,7 @@ impl SharedPostgresStorage {
                             let payload = pg_notification.payload();
                             let ev: InsertEvent = serde_json::from_str(payload).ok()?;
                             let instances = instances.lock().await;
-                            let mut keys = instances.keys();
-                            if keys.find(|key| &ev.job_type == *key).is_some() {
+                            if instances.get(&ev.job_type).is_some() {
                                 return Some(ev);
                             }
                             None
@@ -114,7 +104,7 @@ impl<Args, Compact, Codec> MakeShared<Args> for SharedPostgresStorage<Compact, C
         &mut self,
         config: Self::Config,
     ) -> Result<Self::Backend, Self::MakeError> {
-        let (tx, rx) = mpsc::channel(config.buffer_size);
+        let (tx, rx) = mpsc::channel(config.buffer_size());
         let mut r = self
             .registry
             .try_lock()
@@ -124,6 +114,7 @@ impl<Args, Compact, Codec> MakeShared<Args> for SharedPostgresStorage<Compact, C
                 config.namespace().to_owned(),
             ));
         }
+        let sink = PgSink::new(&self.pool, &config);
         Ok(PostgresStorage {
             _marker: PhantomData,
             config,
@@ -132,6 +123,7 @@ impl<Args, Compact, Codec> MakeShared<Args> for SharedPostgresStorage<Compact, C
                 receiver: rx,
             },
             pool: self.pool.clone(),
+            sink,
         })
     }
 }
@@ -154,20 +146,23 @@ impl Stream for SharedFetcher {
     }
 }
 
-impl<Args, Decode> Backend<Args, SqlMetadata>
-    for PostgresStorage<Args, CompactT, Decode, SharedFetcher>
+impl<Args, Decode> Backend<Args> for PostgresStorage<Args, Value, Decode, SharedFetcher>
 where
     Args: Send + 'static + Unpin,
-    Decode: Codec<Args, Compact = CompactT> + 'static + Unpin + Send,
+    Decode: Codec<Args, Compact = Value> + 'static + Unpin + Send,
     Decode::Error: std::error::Error + Send + Sync + 'static,
 {
     type IdType = Ulid;
 
     type Error = sqlx::Error;
 
-    type Stream = TaskStream<Task<Args, SqlMetadata, Ulid>, sqlx::Error>;
+    type Stream = TaskStream<PgTask<Args>, sqlx::Error>;
 
     type Beat = BoxStream<'static, Result<(), sqlx::Error>>;
+
+    type Codec = Decode;
+
+    type Context = PgContext;
 
     type Layer = AcknowledgeLayer<PgAck>;
 
@@ -183,9 +178,7 @@ where
     }
 
     fn middleware(&self) -> Self::Layer {
-        AcknowledgeLayer::new(PgAck {
-            pool: self.pool.clone(),
-        })
+        AcknowledgeLayer::new(PgAck::new(self.pool.clone()))
     }
 
     fn poll(self, worker: &WorkerContext) -> Self::Stream {
@@ -194,34 +187,20 @@ where
         let lazy_fetcher = self
             .fetcher
             .map(|t| t.to_string())
-            .ready_chunks(self.config.buffer_size)
+            .ready_chunks(self.config.buffer_size())
             .then(move |ids| {
                 let pool = pool.clone();
                 let worker_id = worker_id.clone();
                 async move {
                     let mut tx = pool.begin().await?;
-                    let res: Vec<_> = sqlx::query_as!(
-                        PgTask,
-                        r#"
-UPDATE apalis.jobs
-SET status = 'Running',
-    lock_at = now(),
-    lock_by = $2
-WHERE id IN (
-        SELECT id
-        FROM apalis.jobs
-        WHERE (status='Pending' OR (status = 'Failed' AND attempts < max_attempts))
-            AND run_at < now()
-            AND id = ANY($1)
-        ORDER BY run_at ASC
-        FOR UPDATE skip LOCKED
-    )
-returning *;"#,
+                    let res: Vec<_> = sqlx::query_file_as!(
+                        TaskRow,
+                        "src/queries/task/lock_by_id.sql",
                         &ids,
                         &worker_id
                     )
                     .fetch(&mut *tx)
-                    .map(|r| Ok(Some(r?.try_into_req::<Decode, Args>()?)))
+                    .map(|r| Ok(Some(r?.try_into_task::<Decode, Args>()?)))
                     .collect()
                     .await;
                     tx.commit().await?;
@@ -238,7 +217,7 @@ returning *;"#,
             })
             .boxed();
 
-        let eager_fetcher = StreamExt::boxed(PgFetcher::<Args, CompactT, Decode>::new(
+        let eager_fetcher = StreamExt::boxed(PgFetcher::<Args, Value, Decode>::new(
             &self.pool,
             &self.config,
             worker,
@@ -254,11 +233,12 @@ mod tests {
     use chrono::Local;
 
     use apalis_core::{
-        backend::{memory::MemoryStorage, TaskSink},
+        backend::{TaskSink, memory::MemoryStorage},
         error::BoxDynError,
         worker::{builder::WorkerBuilder, event::Event, ext::event_listener::EventListenerExt},
     };
-    use tower::limit::ConcurrencyLimitLayer;
+
+    use crate::context::PgContext;
 
     use super::*;
 
@@ -273,39 +253,30 @@ mod tests {
 
         let mut int_store = store.make_shared().unwrap();
 
-        let mut int_sink = int_store.sink();
+        let task = Task::builder(99u32)
+            .run_after(Duration::from_secs(2))
+            .with_ctx({
+                let mut ctx = PgContext::default();
+                ctx.set_priority(1);
+                ctx
+            })
+            .build();
+        let task2 = Task::builder(Default::default())
+            .with_ctx({
+                let mut ctx = PgContext::default();
+                ctx.set_priority(2);
+                ctx
+            })
+            .run_after(Duration::from_secs(5))
+            .build();
 
-        let mut map_sink = map_store.sink();
+        map_store
+            .send_all(&mut stream::iter(vec![task, task2].into_iter().map(Ok)))
+            .await
+            .unwrap();
+        int_store.push(99).await.unwrap();
 
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            let task = Task::builder(99u32)
-                .run_after(Duration::from_secs(2))
-                .with_metadata(|mut ctx: SqlMetadata| {
-                    ctx.set_priority(1);
-                    ctx
-                })
-                .build();
-            let task2 = Task::builder(Default::default())
-                .with_metadata(|mut ctx: SqlMetadata| {
-                    ctx.set_priority(2);
-                    ctx
-                })
-                // .run_after(Duration::from_secs(5))
-                .build();
-
-            map_sink
-                .send_all(&mut stream::iter(vec![task, task2].into_iter().map(Ok)))
-                .await
-                .unwrap();
-            int_sink.push(99).await.unwrap();
-        });
-
-        async fn send_reminder<T, I>(
-            _: T,
-            ctx: SqlMetadata,
-            task_id: TaskId<I>,
-        ) -> Result<(), BoxDynError> {
+        async fn send_reminder<T, I>(_: T, task_id: TaskId<I>) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(2)).await;
             // Err("Failed".into())
             Ok(())
@@ -313,7 +284,6 @@ mod tests {
 
         let int_worker = WorkerBuilder::new("rango-tango-2")
             .backend(int_store)
-            .layer(ConcurrencyLimitLayer::new(1))
             .on_event(move |ctx, ev| {
                 println!("{:?}", ev);
                 let ctx = ctx.clone();
@@ -330,7 +300,6 @@ mod tests {
             .build(send_reminder);
         let map_worker = WorkerBuilder::new("rango-tango-1")
             .backend(map_store)
-            .layer(ConcurrencyLimitLayer::new(1))
             .on_event(move |ctx, ev| {
                 println!("{:?}", ev);
                 let ctx = ctx.clone();
@@ -338,7 +307,7 @@ mod tests {
                 if matches!(ev, Event::Start) {
                     tokio::spawn(async move {
                         if ctx.is_running() {
-                            tokio::time::sleep(Duration::from_millis(15000)).await;
+                            // tokio::time::sleep(Duration::from_millis(15000)).await;
                             ctx.stop().unwrap();
                         }
                     });
