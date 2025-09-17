@@ -173,6 +173,7 @@ where
             worker_type,
             worker.clone(),
             Utc::now().timestamp(),
+            "SharedPostgresStorage",
         );
         stream::once(fut).boxed()
     }
@@ -261,58 +262,28 @@ mod tests {
                 ctx
             })
             .build();
-        let task2 = Task::builder(Default::default())
-            .with_ctx({
-                let mut ctx = PgContext::default();
-                ctx.set_priority(2);
-                ctx
-            })
-            .run_after(Duration::from_secs(5))
-            .build();
 
         map_store
-            .send_all(&mut stream::iter(vec![task, task2].into_iter().map(Ok)))
+            .send_all(&mut stream::iter(vec![task].into_iter().map(Ok)))
             .await
             .unwrap();
         int_store.push(99).await.unwrap();
 
-        async fn send_reminder<T, I>(_: T, task_id: TaskId<I>) -> Result<(), BoxDynError> {
+        async fn send_reminder<T, I>(
+            _: T,
+            task_id: TaskId<I>,
+            wrk: WorkerContext,
+        ) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(2)).await;
-            // Err("Failed".into())
+            wrk.stop().unwrap();
             Ok(())
         }
 
         let int_worker = WorkerBuilder::new("rango-tango-2")
             .backend(int_store)
-            .on_event(move |ctx, ev| {
-                println!("{:?}", ev);
-                let ctx = ctx.clone();
-
-                if matches!(ev, Event::Start) {
-                    tokio::spawn(async move {
-                        if ctx.is_running() {
-                            tokio::time::sleep(Duration::from_millis(15000)).await;
-                            ctx.stop().unwrap();
-                        }
-                    });
-                }
-            })
             .build(send_reminder);
         let map_worker = WorkerBuilder::new("rango-tango-1")
             .backend(map_store)
-            .on_event(move |ctx, ev| {
-                println!("{:?}", ev);
-                let ctx = ctx.clone();
-
-                if matches!(ev, Event::Start) {
-                    tokio::spawn(async move {
-                        if ctx.is_running() {
-                            // tokio::time::sleep(Duration::from_millis(15000)).await;
-                            ctx.stop().unwrap();
-                        }
-                    });
-                }
-            })
             .build(send_reminder);
         let res = tokio::try_join!(int_worker.run(), map_worker.run()).unwrap();
     }

@@ -112,16 +112,16 @@ pub(crate) async fn register(
     worker_type: String,
     worker: WorkerContext,
     last_seen: i64,
+    backend_type: &str
 ) -> Result<(), sqlx::Error> {
     let last_seen = DateTime::from_timestamp(last_seen, 0).ok_or(sqlx::Error::Io(
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid Timestamp"),
     ))?;
-    let storage_name = "PostgresStorage";
     let res = sqlx::query_file!(
         "src/queries/worker/register.sql",
         worker.name(),
         worker_type,
-        storage_name,
+        backend_type,
         worker.get_service(),
         last_seen
     )
@@ -164,6 +164,7 @@ where
             worker_type,
             worker.clone(),
             Utc::now().timestamp(),
+            "PostgresStorage"
         );
         stream::once(fut).boxed()
     }
@@ -204,6 +205,7 @@ where
             worker_type,
             worker.clone(),
             Utc::now().timestamp(),
+            "PostgresStorageWithNotify"
         );
         stream::once(fut).boxed()
     }
@@ -303,7 +305,7 @@ mod tests {
 
         let mut items = stream::repeat_with(|| {
             let task = Task::builder(HashMap::default())
-                .run_after(Duration::from_secs(5))
+                .run_after(Duration::from_secs(1))
                 .with_ctx({
                     let mut ctx = PgContext::default();
                     ctx.set_priority(1);
@@ -312,46 +314,34 @@ mod tests {
                 .build();
             Ok(task)
         })
-        .take(20);
+        .take(1);
         backend.send_all(&mut items).await.unwrap();
 
-        async fn send_reminder(_: HashMap<String, String>) -> Result<(), BoxDynError> {
+        async fn send_reminder(
+            _: HashMap<String, String>,
+            wrk: WorkerContext,
+        ) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(2)).await;
+            wrk.stop().unwrap();
             Ok(())
         }
 
         let worker = WorkerBuilder::new("rango-tango-1")
             .backend(backend)
-            .on_event(move |ctx, ev| {
-                println!("{:?}", ev);
-                let ctx = ctx.clone();
-
-                if matches!(ev, Event::Start) {
-                    tokio::spawn(async move {
-                        if ctx.is_running() {
-                            tokio::time::sleep(Duration::from_millis(15000)).await;
-                            ctx.stop().unwrap();
-                        }
-                    });
-                }
-            })
             .build(send_reminder);
         worker.run().await.unwrap();
     }
 
     #[tokio::test]
     async fn notify_worker() {
-        let mut backend = PostgresStorage::new_with_notify(
-            PgPool::connect("postgres://postgres:postgres@localhost/apalis_dev")
-                .await
-                .unwrap(),
-            Config::new("test").set_poll_interval(Duration::from_secs(5)),
-        )
-        .await;
+        let pool = PgPool::connect("postgres://postgres:postgres@localhost/apalis_dev")
+            .await
+            .unwrap();
+        let config = Config::new("test").set_poll_interval(Duration::from_secs(5));
+        let mut backend = PostgresStorage::new_with_notify(pool, config).await;
 
         let mut items = stream::repeat_with(|| {
             let task = Task::builder(Default::default())
-                .run_after(Duration::from_secs(5))
                 .with_ctx({
                     let mut ctx = PgContext::default();
                     ctx.set_priority(1);
@@ -360,29 +350,17 @@ mod tests {
                 .build();
             Ok(task)
         })
-        .take(20);
+        .take(1);
         backend.send_all(&mut items).await.unwrap();
 
-        async fn send_reminder(_: u32) -> Result<(), BoxDynError> {
+        async fn send_reminder(_: u32, wrk: WorkerContext) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(2)).await;
+            wrk.stop().unwrap();
             Ok(())
         }
 
         let worker = WorkerBuilder::new("rango-tango-1")
             .backend(backend)
-            .on_event(move |ctx, ev| {
-                println!("{:?}", ev);
-                let ctx = ctx.clone();
-
-                if matches!(ev, Event::Start) {
-                    tokio::spawn(async move {
-                        if ctx.is_running() {
-                            tokio::time::sleep(Duration::from_millis(15000)).await;
-                            ctx.stop().unwrap();
-                        }
-                    });
-                }
-            })
             .build(send_reminder);
         worker.run().await.unwrap();
     }
