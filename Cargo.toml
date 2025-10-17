@@ -16,7 +16,7 @@ tokio-comp = ["tokio", "sqlx/runtime-tokio-rustls"]
 tokio-comp-native-tls = ["tokio", "sqlx/runtime-tokio-native-tls"]
 
 [dependencies]
-apalis-core = { version = "1.0.0-alpha.1", default-features = false, features = [
+apalis-core = { version = "1.0.0-alpha.4", default-features = false, features = [
   "sleep",
   "json",
 ] }
@@ -38,4 +38,4 @@ features = ["chrono", "postgres", "json"]
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 once_cell = "1.19.0"
-apalis-core = { version = "1.0.0-alpha.1", features = ["test-utils"] }
+apalis-core = { version = "1.0.0-alpha.4", features = ["test-utils"] }

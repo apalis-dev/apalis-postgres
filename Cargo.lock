@@ -34,9 +34,9 @@ dependencies = [
 
 [[package]]
 name = "apalis-core"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4af49df8b7f9aeacae0323afba50719026dcf105b65cc27e8d3602e2c1fcb846"
+checksum = "2cc380cbfe50837e7425f4858037ed4fbb9559c4bb55dc4152c0051ccbcaa242"
 dependencies = [
  "futures-channel",
  "futures-core",
