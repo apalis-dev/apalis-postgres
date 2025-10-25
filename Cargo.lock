@@ -34,9 +34,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-core"
-version = "1.0.0-alpha.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4af49df8b7f9aeacae0323afba50719026dcf105b65cc27e8d3602e2c1fcb846"
+version = "1.0.0-alpha.6"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -49,6 +47,7 @@ dependencies = [
  "thiserror",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -56,6 +55,8 @@ name = "apalis-postgres"
 version = "1.0.0-alpha.1"
 dependencies = [
  "apalis-core",
+ "apalis-sql",
+ "apalis-workflow",
  "async-std",
  "chrono",
  "futures",
@@ -64,7 +65,33 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "thiserror",
  "tokio",
+ "ulid",
+]
+
+[[package]]
+name = "apalis-sql"
+version = "1.0.0-alpha.6"
+dependencies = [
+ "apalis-core",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "apalis-workflow"
+version = "0.1.0-alpha.4"
+dependencies = [
+ "apalis-core",
+ "futures",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tower",
+ "tracing",
  "ulid",
 ]
 
@@ -2064,6 +2091,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sync_wrapper"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
+
+[[package]]
 name = "synstructure"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2173,6 +2206,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tower"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
+dependencies = [
+ "futures-core",
+ "futures-util",
+ "pin-project-lite",
+ "sync_wrapper",
+ "tower-layer",
+ "tower-service",
+]
+
+[[package]]
 name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2229,6 +2276,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "470dbf6591da1b39d43c14523b2b469c86879a53e8b758c8e090a470fe7b1fbe"
 dependencies = [
  "rand 0.9.2",
+ "serde",
  "web-time",
 ]
 

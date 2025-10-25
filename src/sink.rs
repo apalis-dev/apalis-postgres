@@ -1,27 +1,33 @@
 use std::{
     pin::{self, Pin},
+    sync::Arc,
     task::{Context, Poll},
 };
 
 use apalis_core::{
     backend::codec::{Codec, json::JsonCodec},
     error::BoxDynError,
+    task::metadata,
 };
 use chrono::DateTime;
-use futures::Sink;
-use serde_json::Value;
-use sqlx::{PgPool, Postgres};
+use futures::{
+    FutureExt, Sink, TryFutureExt,
+    future::{BoxFuture, Shared},
+};
+use sqlx::PgPool;
 use ulid::Ulid;
 
-use crate::{PgTask, PostgresStorage, config::Config};
+use crate::{CompactType, PgTask, PostgresStorage, config::Config};
+
+type FlushFuture = BoxFuture<'static, Result<(), Arc<sqlx::Error>>>;
 
 #[pin_project::pin_project]
-pub struct PgSink<Args, Compact = Value, Codec = JsonCodec<Value>> {
+pub struct PgSink<Args, Compact = CompactType, Codec = JsonCodec<CompactType>> {
     pool: PgPool,
     config: Config,
     buffer: Vec<PgTask<Compact>>,
     #[pin]
-    flush_future: Option<Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send>>>,
+    flush_future: Option<Shared<FlushFuture>>,
     _marker: std::marker::PhantomData<(Args, Codec)>,
 }
 
@@ -40,15 +46,16 @@ impl<Args, Compact, Codec> Clone for PgSink<Args, Compact, Codec> {
 async fn push_tasks(
     pool: PgPool,
     cfg: Config,
-    buffer: Vec<PgTask<Value>>,
+    buffer: Vec<PgTask<CompactType>>,
 ) -> Result<(), sqlx::Error> {
-    let job_type = cfg.namespace();
+    let job_type = cfg.queue().to_string();
     // Build the multi-row INSERT with UNNEST
     let mut ids = Vec::new();
     let mut job_data = Vec::new();
     let mut run_ats = Vec::new();
     let mut priorities = Vec::new();
     let mut max_attempts_vec = Vec::new();
+    let mut metadata = Vec::new();
 
     for task in buffer {
         ids.push(
@@ -62,18 +69,20 @@ async fn push_tasks(
             DateTime::from_timestamp(task.parts.run_at as i64, 0)
                 .ok_or(sqlx::Error::ColumnNotFound("run_at".to_owned()))?,
         );
-        priorities.push(*task.parts.ctx.priority());
+        priorities.push(task.parts.ctx.priority());
         max_attempts_vec.push(task.parts.ctx.max_attempts());
+        metadata.push(serde_json::Value::Object(task.parts.ctx.meta().clone()));
     }
 
     sqlx::query_file!(
-        "src/queries/task/sink.sql",
+        "queries/task/sink.sql",
         &ids,
         &job_type,
         &job_data,
         &max_attempts_vec,
         &run_ats,
-        &priorities
+        &priorities,
+        &metadata
     )
     .execute(&pool)
     .await?;
@@ -92,12 +101,10 @@ impl<Args, Compact, Codec> PgSink<Args, Compact, Codec> {
     }
 }
 
-impl<Args, Encode, Fetcher> Sink<PgTask<Args>> for PostgresStorage<Args, Value, Encode, Fetcher>
+impl<Args, Encode, Fetcher> Sink<PgTask<CompactType>>
+    for PostgresStorage<Args, CompactType, Encode, Fetcher>
 where
     Args: Unpin + Send + Sync + 'static,
-    Encode: Codec<Args, Compact = Value> + Unpin,
-    Encode::Error: std::error::Error + Send + Sync + 'static,
-    Encode::Error: Into<BoxDynError>,
     Fetcher: Unpin,
 {
     type Error = sqlx::Error;
@@ -106,12 +113,9 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(mut self: Pin<&mut Self>, item: PgTask<Args>) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: PgTask<CompactType>) -> Result<(), Self::Error> {
         // Add the item to the buffer
-        self.get_mut()
-            .sink
-            .buffer
-            .push(item.try_map(|s| Encode::encode(&s).map_err(|e| sqlx::Error::Encode(e.into())))?);
+        self.get_mut().sink.buffer.push(item);
         Ok(())
     }
 
@@ -128,20 +132,20 @@ where
             let pool = this.pool.clone();
             let config = this.config.clone();
             let buffer = std::mem::take(&mut this.sink.buffer);
-            let sink_fut = push_tasks(pool, config, buffer);
-            this.sink.flush_future = Some(Box::pin(sink_fut));
+            let sink_fut = push_tasks(pool, config, buffer).map_err(Arc::new);
+            this.sink.flush_future = Some(sink_fut.boxed().shared());
         }
 
         // Poll the existing future
         if let Some(mut fut) = this.sink.flush_future.take() {
-            match fut.as_mut().poll(cx) {
+            match fut.poll_unpin(cx) {
                 Poll::Ready(Ok(())) => {
                     // Future completed successfully, don't put it back
                     Poll::Ready(Ok(()))
                 }
                 Poll::Ready(Err(e)) => {
                     // Future completed with error, don't put it back
-                    Poll::Ready(Err(e))
+                    Poll::Ready(Err(Arc::<sqlx::Error>::into_inner(e).unwrap()))
                 }
                 Poll::Pending => {
                     // Future is still pending, put it back and return Pending

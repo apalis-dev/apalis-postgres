@@ -8,19 +8,28 @@ use std::{
 };
 
 use crate::{
-    Config, InsertEvent, PgTask, PostgresStorage, ack::PgAck, context::PgContext,
-    fetcher::PgFetcher, register,
+    CompactType, Config, InsertEvent, PgTask, PostgresStorage,
+    ack::{LockTaskLayer, PgAck},
+    context::PgContext,
+    fetcher::PgPollFetcher,
+    queries::{
+        keep_alive::{initial_heartbeat, keep_alive_stream},
+        reenqueue_orphaned::reenqueue_orphaned_stream,
+        register_worker::register,
+    },
 };
-use crate::{from_row::TaskRow, sink::PgSink};
+use crate::{from_row::PgTaskRow, sink::PgSink};
 use apalis_core::{
     backend::{
         Backend, TaskStream,
         codec::{Codec, json::JsonCodec},
         shared::MakeShared,
     },
+    layers::Stack,
     task::{Task, task_id::TaskId},
     worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
+use apalis_sql::from_row::TaskRow;
 use chrono::Utc;
 use futures::{
     FutureExt, SinkExt, Stream, StreamExt, TryStreamExt,
@@ -30,11 +39,10 @@ use futures::{
     stream::{self, BoxStream, select},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::Value;
 use sqlx::{PgPool, postgres::PgListener};
 use ulid::Ulid;
 
-pub struct SharedPostgresStorage<Compact = Value, Codec = JsonCodec<Value>> {
+pub struct SharedPostgresStorage<Compact = CompactType, Codec = JsonCodec<CompactType>> {
     pool: PgPool,
     registry: Arc<Mutex<HashMap<String, Sender<TaskId>>>>,
     drive: Shared<BoxFuture<'static, ()>>,
@@ -84,9 +92,14 @@ impl SharedPostgresStorage {
         }
     }
 }
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SharedPostgresError {
+    /// Namespace not found
+    #[error("namespace already exists: {0}")]
     NamespaceExists(String),
+
+    /// Registry locked
+    #[error("registry locked")]
     RegistryLocked,
 }
 
@@ -109,9 +122,9 @@ impl<Args, Compact, Codec> MakeShared<Args> for SharedPostgresStorage<Compact, C
             .registry
             .try_lock()
             .ok_or(SharedPostgresError::RegistryLocked)?;
-        if let Some(_) = r.insert(config.namespace().to_owned(), tx) {
+        if let Some(_) = r.insert(config.queue().to_string(), tx) {
             return Err(SharedPostgresError::NamespaceExists(
-                config.namespace().to_owned(),
+                config.queue().to_string(),
             ));
         }
         let sink = PgSink::new(&self.pool, &config);
@@ -136,7 +149,7 @@ pub struct SharedFetcher {
 impl Stream for SharedFetcher {
     type Item = TaskId;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         // Keep the poller alive by polling it, but ignoring the output
         let _ = this.poller.poll_unpin(cx);
@@ -146,45 +159,62 @@ impl Stream for SharedFetcher {
     }
 }
 
-impl<Args, Decode> Backend<Args> for PostgresStorage<Args, Value, Decode, SharedFetcher>
+impl<Args, Decode> Backend for PostgresStorage<Args, CompactType, Decode, SharedFetcher>
 where
     Args: Send + 'static + Unpin,
-    Decode: Codec<Args, Compact = Value> + 'static + Unpin + Send,
+    Decode: Codec<Args, Compact = CompactType> + 'static + Unpin + Send,
     Decode::Error: std::error::Error + Send + Sync + 'static,
 {
+    type Args = Args;
+
+    type Compact = CompactType;
+
     type IdType = Ulid;
 
     type Error = sqlx::Error;
 
-    type Stream = TaskStream<PgTask<Args>, sqlx::Error>;
+    type Stream = TaskStream<PgTask<Args>, Self::Error>;
 
-    type Beat = BoxStream<'static, Result<(), sqlx::Error>>;
+    type Beat = BoxStream<'static, Result<(), Self::Error>>;
 
     type Codec = Decode;
 
     type Context = PgContext;
 
-    type Layer = AcknowledgeLayer<PgAck>;
+    type Layer = Stack<LockTaskLayer, AcknowledgeLayer<PgAck>>;
 
     fn heartbeat(&self, worker: &WorkerContext) -> Self::Beat {
-        let worker_type = self.config.namespace().to_owned();
-        let fut = register(
+        let pool = self.pool.clone();
+        let config = self.config.clone();
+        let worker = worker.clone();
+        let keep_alive = keep_alive_stream(pool, config, worker);
+        let reenqueue = reenqueue_orphaned_stream(
             self.pool.clone(),
-            worker_type,
-            worker.clone(),
-            Utc::now().timestamp(),
-            "SharedPostgresStorage",
-        );
-        stream::once(fut).boxed()
+            self.config.clone(),
+            *self.config.keep_alive(),
+        )
+        .map_ok(|_| ());
+        futures::stream::select(keep_alive, reenqueue).boxed()
     }
 
     fn middleware(&self) -> Self::Layer {
-        AcknowledgeLayer::new(PgAck::new(self.pool.clone()))
+        Stack::new(
+            LockTaskLayer::new(self.pool.clone()),
+            AcknowledgeLayer::new(PgAck::new(self.pool.clone())),
+        )
     }
 
     fn poll(self, worker: &WorkerContext) -> Self::Stream {
         let pool = self.pool.clone();
         let worker_id = worker.name().to_owned();
+        let register_worker = initial_heartbeat(
+            self.pool.clone(),
+            self.config.clone(),
+            worker.clone(),
+            "SharedPostgresStorage",
+        )
+        .map(|_| Ok(None));
+        let register = stream::once(register_worker);
         let lazy_fetcher = self
             .fetcher
             .map(|t| t.to_string())
@@ -195,13 +225,19 @@ where
                 async move {
                     let mut tx = pool.begin().await?;
                     let res: Vec<_> = sqlx::query_file_as!(
-                        TaskRow,
-                        "src/queries/task/lock_by_id.sql",
+                        PgTaskRow,
+                        "queries/task/lock_by_id.sql",
                         &ids,
                         &worker_id
                     )
                     .fetch(&mut *tx)
-                    .map(|r| Ok(Some(r?.try_into_task::<Decode, Args>()?)))
+                    .map(|r| {
+                        let row: TaskRow = r?.try_into()?;
+                        Ok(Some(
+                            row.try_into_task::<Decode, Args, Ulid>()
+                                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+                        ))
+                    })
                     .collect()
                     .await;
                     tx.commit().await?;
@@ -218,12 +254,12 @@ where
             })
             .boxed();
 
-        let eager_fetcher = StreamExt::boxed(PgFetcher::<Args, Value, Decode>::new(
+        let eager_fetcher = StreamExt::boxed(PgPollFetcher::<Args, CompactType, Decode>::new(
             &self.pool,
             &self.config,
             worker,
         ));
-        select(lazy_fetcher, eager_fetcher).boxed()
+        register.chain(select(lazy_fetcher, eager_fetcher)).boxed()
     }
 }
 
@@ -254,17 +290,8 @@ mod tests {
 
         let mut int_store = store.make_shared().unwrap();
 
-        let task = Task::builder(99u32)
-            .run_after(Duration::from_secs(2))
-            .with_ctx({
-                let mut ctx = PgContext::default();
-                ctx.set_priority(1);
-                ctx
-            })
-            .build();
-
         map_store
-            .send_all(&mut stream::iter(vec![task].into_iter().map(Ok)))
+            .push_stream(&mut stream::iter(vec![HashMap::<String, String>::new()]))
             .await
             .unwrap();
         int_store.push(99).await.unwrap();

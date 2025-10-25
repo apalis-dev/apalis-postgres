@@ -4,7 +4,7 @@ SET
     lock_at = now(),
     lock_by = $2
 WHERE 
-    (status = 'Pending' OR (status = 'Failed' AND attempts < max_attempts))
+    status = 'Queued'
     AND run_at < now()
     AND id = ANY($1)
 RETURNING *;
