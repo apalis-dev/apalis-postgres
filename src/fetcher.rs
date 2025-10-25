@@ -2,7 +2,6 @@ use std::{
     collections::VecDeque,
     marker::PhantomData,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
@@ -13,19 +12,16 @@ use apalis_core::{
     timer::Delay,
     worker::context::WorkerContext,
 };
-use futures::{
-    Future, FutureExt, StreamExt,
-    future::BoxFuture,
-    stream::{self, Stream},
-};
+use apalis_sql::from_row::TaskRow;
+use futures::{Future, FutureExt, future::BoxFuture, stream::Stream};
 use pin_project::pin_project;
-use serde_json::Value;
+
 use sqlx::{PgPool, Pool, Postgres};
 use ulid::Ulid;
 
-use crate::{config::Config, context::PgContext, from_row::TaskRow, PgTask};
+use crate::{CompactType, PgTask, config::Config, context::PgContext, from_row::PgTaskRow};
 
-async fn fetch_next<Args, D: Codec<Args, Compact = Value>>(
+async fn fetch_next<Args: 'static, D: Codec<Args, Compact = CompactType>>(
     pool: PgPool,
     config: Config,
     worker: WorkerContext,
@@ -33,13 +29,12 @@ async fn fetch_next<Args, D: Codec<Args, Compact = Value>>(
 where
     D::Error: std::error::Error + Send + Sync + 'static,
 {
-    use futures::TryFutureExt;
-    let job_type = config.namespace();
+    let job_type = config.queue().to_string();
     let buffer_size = config.buffer_size() as i32;
 
     sqlx::query_file_as!(
-        TaskRow,
-        "src/queries/task/fetch_next.sql",
+        PgTaskRow,
+        "queries/task/fetch_next.sql",
         worker.name(),
         job_type,
         buffer_size
@@ -47,7 +42,11 @@ where
     .fetch_all(&pool)
     .await?
     .into_iter()
-    .map(|r| r.try_into_task::<D, Args>())
+    .map(|r| {
+        let row: TaskRow = r.try_into()?;
+        row.try_into_task::<D, Args, Ulid>()
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))
+    })
     .collect()
 }
 
@@ -56,11 +55,16 @@ enum StreamState<Args> {
     Delay(Delay),
     Fetch(BoxFuture<'static, Result<Vec<PgTask<Args>>, sqlx::Error>>),
     Buffered(VecDeque<PgTask<Args>>),
-    Empty,
+}
+
+/// Dispatcher for fetching tasks from a PostgreSQL backend via [PgPollFetcher]
+#[derive(Clone, Debug)]
+pub struct PgFetcher<Args, Compact, Decode> {
+    pub _marker: PhantomData<(Args, Compact, Decode)>,
 }
 
 #[pin_project]
-pub struct PgFetcher<Args, Compact = Value, Decode = JsonCodec<Value>> {
+pub struct PgPollFetcher<Args, Compact = CompactType, Decode = JsonCodec<CompactType>> {
     pool: PgPool,
     config: Config,
     wrk: WorkerContext,
@@ -71,7 +75,7 @@ pub struct PgFetcher<Args, Compact = Value, Decode = JsonCodec<Value>> {
     last_fetch_time: Option<Instant>,
 }
 
-impl<Args, Compact, Decode> Clone for PgFetcher<Args, Compact, Decode> {
+impl<Args, Compact, Decode> Clone for PgPollFetcher<Args, Compact, Decode> {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
@@ -85,10 +89,10 @@ impl<Args, Compact, Decode> Clone for PgFetcher<Args, Compact, Decode> {
     }
 }
 
-impl<Args: 'static, Decode> PgFetcher<Args, Value, Decode> {
+impl<Args: 'static, Decode> PgPollFetcher<Args, CompactType, Decode> {
     pub fn new(pool: &Pool<Postgres>, config: &Config, wrk: &WorkerContext) -> Self
     where
-        Decode: Codec<Args, Compact = Value> + 'static,
+        Decode: Codec<Args, Compact = CompactType> + 'static,
         Decode::Error: std::error::Error + Send + Sync + 'static,
     {
         let initial_backoff = Duration::from_secs(1);
@@ -104,23 +108,26 @@ impl<Args: 'static, Decode> PgFetcher<Args, Value, Decode> {
     }
 }
 
-impl<Args, Decode> Stream for PgFetcher<Args, Value, Decode>
+impl<Args, Decode> Stream for PgPollFetcher<Args, CompactType, Decode>
 where
     Decode::Error: std::error::Error + Send + Sync + 'static,
     Args: Send + 'static + Unpin,
-    Decode: Codec<Args, Compact = Value> + 'static,
+    Decode: Codec<Args, Compact = CompactType> + 'static,
     // Compact: Unpin + Send + 'static,
 {
     type Item = Result<Option<PgTask<Args>>, sqlx::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.get_mut();
+        let this = self.get_mut();
 
         loop {
             match this.state {
                 StreamState::Ready => {
-                    let stream =
-                        fetch_next::<Args, Decode>(this.pool.clone(), this.config.clone(), this.wrk.clone());
+                    let stream = fetch_next::<Args, Decode>(
+                        this.pool.clone(),
+                        this.config.clone(),
+                        this.wrk.clone(),
+                    );
                     this.state = StreamState::Fetch(stream.boxed());
                 }
                 StreamState::Delay(ref mut delay) => match Pin::new(delay).poll(cx) {
@@ -168,19 +175,18 @@ where
                         this.state = StreamState::Ready;
                     }
                 }
-
-                StreamState::Empty => return Poll::Ready(None),
             }
         }
     }
 }
 
-impl<Args, Compact, Decode> PgFetcher<Args, Compact, Decode> {
+impl<Args, Compact, Decode> PgPollFetcher<Args, Compact, Decode> {
     fn next_backoff(&self, current: Duration) -> Duration {
         let doubled = current * 2;
         std::cmp::min(doubled, Duration::from_secs(60 * 5))
     }
 
+    #[allow(unused)]
     pub fn take_pending(&mut self) -> VecDeque<PgTask<Args>> {
         match &mut self.state {
             StreamState::Buffered(tasks) => std::mem::take(tasks),

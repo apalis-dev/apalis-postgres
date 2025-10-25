@@ -55,12 +55,11 @@ jobs:
       matrix:
         features:
           - ""
-          - "--features serde"
-          - "--features english"
-          - "--features cron"
-          - "--features serde,english"
-          - "--features serde,cron"
-          - "--features english,cron"
+          - "--features migrate"
+          - "--features async-std-comp"
+          - "--features async-std-comp-native-tls"
+          - "--features tokio-comp"
+          - "--features tokio-comp-native-tls"
           - "--all-features"
     steps:
       - name: Checkout sources
