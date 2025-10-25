@@ -190,6 +190,9 @@
 //! ## License
 //!
 //! Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+//! 
+//! [`PostgresStorageWithListener`]: crate::PostgresStorage
+//! [`SharedPostgresStorage`]: crate::shared::SharedPostgresStorage
 use std::{fmt::Debug, marker::PhantomData};
 
 use apalis_core::{
