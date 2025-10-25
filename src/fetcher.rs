@@ -2,7 +2,6 @@ use std::{
     collections::VecDeque,
     marker::PhantomData,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
@@ -13,12 +12,8 @@ use apalis_core::{
     timer::Delay,
     worker::context::WorkerContext,
 };
-use apalis_sql::from_row::{FromRowError, TaskRow};
-use futures::{
-    Future, FutureExt, StreamExt,
-    future::BoxFuture,
-    stream::{self, Stream},
-};
+use apalis_sql::from_row::TaskRow;
+use futures::{Future, FutureExt, future::BoxFuture, stream::Stream};
 use pin_project::pin_project;
 
 use sqlx::{PgPool, Pool, Postgres};
@@ -123,7 +118,7 @@ where
     type Item = Result<Option<PgTask<Args>>, sqlx::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.get_mut();
+        let this = self.get_mut();
 
         loop {
             match this.state {
@@ -191,6 +186,7 @@ impl<Args, Compact, Decode> PgPollFetcher<Args, Compact, Decode> {
         std::cmp::min(doubled, Duration::from_secs(60 * 5))
     }
 
+    #[allow(unused)]
     pub fn take_pending(&mut self) -> VecDeque<PgTask<Args>> {
         match &mut self.state {
             StreamState::Buffered(tasks) => std::mem::take(tasks),

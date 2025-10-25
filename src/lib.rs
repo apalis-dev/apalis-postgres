@@ -1,15 +1,196 @@
-use std::{
-    backtrace::Backtrace,
-    collections::HashMap,
-    fmt::Debug,
-    future::Future,
-    marker::PhantomData,
-    panic,
-    pin::{self, Pin},
-    str::FromStr,
-    sync::Arc,
-    task::{Context, Poll},
-};
+//! # apalis-postgres
+//!
+//! Background task processing in rust using `apalis` and `postgres`
+//!
+//! ## Features
+//!
+//! - **Reliable job queue** using Postgres as the backend.
+//! - **Multiple storage types**: standard polling and `trigger` based storages.
+//! - **Custom codecs** for serializing/deserializing job arguments as bytes.
+//! - **Heartbeat and orphaned job re-enqueueing** for robust task processing.
+//! - **Integration with `apalis` workers and middleware.**
+//!
+//! ## Storage Types
+//!
+//! - [`PostgresStorage`]: Standard polling-based storage.
+//! - [`PostgresStorageWithListener`]: Event-driven storage using Postgres `NOTIFY` for low-latency job fetching.
+//! - [`SharedPostgresStorage`]: Shared storage for multiple job types, uses Postgres `NOTIFY`.
+//!
+//! The naming is designed to clearly indicate the storage mechanism and its capabilities, but under the hood the result is the `PostgresStorage` struct with different configurations.
+//!
+//! ## Examples
+//!
+//! ### Basic Worker Example
+//!
+//! ```rust,no_run
+//! # use std::time::Duration;
+//! # use apalis_postgres::PostgresStorage;
+//! # use apalis_core::worker::builder::WorkerBuilder;
+//! # use apalis_core::worker::event::Event;
+//! # use apalis_core::task::Task;
+//! # use apalis_core::worker::context::WorkerContext;
+//! # use apalis_core::error::BoxDynError;
+//! # use sqlx::PgPool;
+//! # use futures::stream;
+//! # use apalis_sql::context::SqlContext;
+//! # use futures::SinkExt;
+//! # use apalis_sql::config::Config;
+//! # use futures::StreamExt;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
+//!     PostgresStorage::setup(&pool).await.unwrap();
+//!     let mut backend = PostgresStorage::new_with_config(&pool, &Config::new("int-queue"));
+//!
+//!     let mut start = 0;
+//!     let mut items = stream::repeat_with(move || {
+//!         start += 1;
+//!         let task = Task::builder(serde_json::to_vec(&start).unwrap())
+//!             .run_after(Duration::from_secs(1))
+//!             .with_ctx(SqlContext::new().with_priority(1))
+//!             .build();
+//!         Ok(task)
+//!     })
+//!     .take(10);
+//!     backend.send_all(&mut items).await.unwrap();
+//!
+//!     async fn send_reminder(item: usize, wrk: WorkerContext) -> Result<(), BoxDynError> {
+//!         Ok(())
+//!     }
+//!
+//!     let worker = WorkerBuilder::new("worker-1")
+//!         .backend(backend)
+//!         .build(send_reminder);
+//!     worker.run().await.unwrap();
+//! }
+//! ```
+//!
+//! ### `NOTIFY` listener example
+//!
+//! ```rust,no_run
+//! # use std::time::Duration;
+//! # use apalis_postgres::PostgresStorage;
+//! # use apalis_core::worker::builder::WorkerBuilder;
+//! # use apalis_core::worker::event::Event;
+//! # use apalis_core::task::Task;
+//! # use sqlx::PgPool;
+//! # use apalis_core::backend::poll_strategy::StrategyBuilder;
+//! # use apalis_core::backend::poll_strategy::IntervalStrategy;
+//! # use apalis_sql::config::Config;
+//! # use futures::stream;
+//! # use apalis_sql::context::SqlContext;
+//! # use apalis_core::error::BoxDynError;
+//! # use futures::StreamExt;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
+//!     PostgresStorage::setup(&pool).await.unwrap();
+//!
+//!     let lazy_strategy = StrategyBuilder::new()
+//!         .apply(IntervalStrategy::new(Duration::from_secs(5)))
+//!         .build();
+//!     let config = Config::new("queue")
+//!         .with_poll_interval(lazy_strategy)
+//!         .set_buffer_size(5);
+//!     let backend = PostgresStorage::new_with_notify(&pool, &config).await;
+//!
+//!     tokio::spawn({
+//!         let pool = pool.clone();
+//!         let config = config.clone();
+//!         async move {
+//!             tokio::time::sleep(Duration::from_secs(2)).await;
+//!             let mut start = 0;
+//!             let items = stream::repeat_with(move || {
+//!                 start += 1;
+//!                 Task::builder(serde_json::to_vec(&start).unwrap())
+//!                     .run_after(Duration::from_secs(1))
+//!                     .with_ctx(SqlContext::new().with_priority(start))
+//!                     .build()
+//!             })
+//!             .take(20)
+//!             .collect::<Vec<_>>()
+//!             .await;
+//!             apalis_postgres::sink::push_tasks(pool, config, items).await.unwrap();
+//!         }
+//!     });
+//!
+//!     async fn send_reminder(task: usize) -> Result<(), BoxDynError> {
+//!         Ok(())
+//!     }
+//!
+//!     let worker = WorkerBuilder::new("worker-2")
+//!         .backend(backend)
+//!         .build(send_reminder);
+//!     worker.run().await.unwrap();
+//! }
+//! ```
+//!
+//! ### Workflow Example
+//!
+//! ```rust,no_run
+//! # use apalis_workflow::WorkFlow;
+//! # use apalis_workflow::WorkflowError;
+//! # use std::time::Duration;
+//! # use apalis_postgres::PostgresStorage;
+//! # use apalis_core::worker::builder::WorkerBuilder;
+//! # use apalis_core::worker::ext::event_listener::EventListenerExt;
+//! # use apalis_core::worker::event::Event;
+//! # use sqlx::PgPool;
+//! # use apalis_sql::config::Config;
+//! # use apalis_core::backend::WeakTaskSink;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let workflow = WorkFlow::new("odd-numbers-workflow")
+//!         .then(|a: usize| async move {
+//!             Ok::<_, WorkflowError>((0..=a).collect::<Vec<_>>())
+//!         })
+//!         .filter_map(|x| async move {
+//!             if x % 2 != 0 { Some(x) } else { None }
+//!         })
+//!         .filter_map(|x| async move {
+//!             if x % 3 != 0 { Some(x) } else { None }
+//!         })
+//!         .filter_map(|x| async move {
+//!             if x % 5 != 0 { Some(x) } else { None }
+//!         })
+//!         .delay_for(Duration::from_millis(1000))
+//!         .then(|a: Vec<usize>| async move {
+//!             println!("Sum: {}", a.iter().sum::<usize>());
+//!             Ok::<(), WorkflowError>(())
+//!         });
+//!
+//!     let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
+//!     PostgresStorage::setup(&pool).await.unwrap();
+//!     let mut backend = PostgresStorage::new_with_config(&pool, &Config::new("workflow-queue"));
+//!
+//!     backend.push(100usize).await.unwrap();
+//!
+//!     let worker = WorkerBuilder::new("rango-tango")
+//!         .backend(backend)
+//!         .on_event(|ctx, ev| {
+//!             println!("On Event = {:?}", ev);
+//!             if matches!(ev, Event::Error(_)) {
+//!                 ctx.stop().unwrap();
+//!             }
+//!         })
+//!         .build(workflow);
+//!
+//!     worker.run().await.unwrap();
+//! }
+//! ```
+//!
+//! ## Observability
+//!
+//! You can track your jobs using [apalis-board](https://github.com/apalis-dev/apalis-board).
+//! ![Task](https://github.com/apalis-dev/apalis-board/raw/master/screenshots/task.png)
+//!
+//! ## License
+//!
+//! Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+use std::{fmt::Debug, marker::PhantomData};
 
 use apalis_core::{
     backend::{
@@ -17,23 +198,16 @@ use apalis_core::{
         codec::{Codec, json::JsonCodec},
     },
     layers::Stack,
-    task::{Parts, Task, attempt::Attempt, status::Status, task_id::TaskId},
-    worker::{
-        context::WorkerContext,
-        ext::ack::{Acknowledge, AcknowledgeLayer},
-    },
+    task::{Task, task_id::TaskId},
+    worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
 use apalis_sql::from_row::TaskRow;
-use chrono::{DateTime, Utc};
 use futures::{
-    FutureExt, Sink, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt,
-    channel::mpsc::{Receiver, Sender},
-    future::{BoxFuture, ready},
-    lock::Mutex,
+    FutureExt, StreamExt, TryStreamExt,
+    future::ready,
     stream::{self, BoxStream, select},
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::{Map, Value, json};
+use serde::Deserialize;
 use sqlx::{PgPool, postgres::PgListener};
 use ulid::Ulid;
 
@@ -54,9 +228,6 @@ mod config;
 mod fetcher;
 mod from_row {
     use chrono::{DateTime, Utc};
-
-    // pub type TaskRow = apalis_sql::from_row::TaskRow<serde_json::Value>;
-
     #[derive(Debug)]
     pub struct PgTaskRow {
         pub job: Option<Vec<u8>>,
@@ -109,7 +280,7 @@ mod context {
 }
 mod queries;
 pub mod shared;
-mod sink;
+pub mod sink;
 
 pub type PgTask<Args> = Task<Args, PgContext, Ulid>;
 
@@ -145,14 +316,34 @@ impl<Args, Compact, Codec, Fetcher: Clone> Clone
     }
 }
 
+impl PostgresStorage<(), (), ()> {
+    /// Perform migrations for storage
+    #[cfg(feature = "migrate")]
+    pub async fn setup(pool: &PgPool) -> Result<(), sqlx::Error> {
+        Self::migrations().run(pool).await?;
+        Ok(())
+    }
+
+    /// Get postgres migrations without running them
+    #[cfg(feature = "migrate")]
+    pub fn migrations() -> sqlx::migrate::Migrator {
+        sqlx::migrate!("./migrations")
+    }
+}
+
 impl<Args> PostgresStorage<Args> {
+    pub fn new(pool: &PgPool) -> Self {
+        let config = Config::new(std::any::type_name::<Args>());
+        Self::new_with_config(pool, &config)
+    }
+
     /// Creates a new PostgresStorage instance.
-    pub fn new(pool: PgPool, config: Config) -> Self {
-        let sink = PgSink::new(&pool, &config);
+    pub fn new_with_config(pool: &PgPool, config: &Config) -> Self {
+        let sink = PgSink::new(pool, config);
         Self {
             _marker: PhantomData,
-            pool,
-            config,
+            pool: pool.clone(),
+            config: config.clone(),
             fetcher: PgFetcher {
                 _marker: PhantomData,
             },
@@ -161,18 +352,18 @@ impl<Args> PostgresStorage<Args> {
     }
 
     pub async fn new_with_notify(
-        pool: PgPool,
-        config: Config,
+        pool: &PgPool,
+        config: &Config,
     ) -> PostgresStorage<Args, CompactType, JsonCodec<CompactType>, PgListener> {
-        let sink = PgSink::new(&pool, &config);
-        let mut fetcher = PgListener::connect_with(&pool)
+        let sink = PgSink::new(pool, config);
+        let mut fetcher = PgListener::connect_with(pool)
             .await
             .expect("Failed to create listener");
         fetcher.listen("apalis::job::insert").await.unwrap();
         PostgresStorage {
             _marker: PhantomData,
-            pool,
-            config,
+            pool: pool.clone(),
+            config: config.clone(),
             fetcher,
             sink,
         }
@@ -382,13 +573,11 @@ pub struct InsertEvent {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, time::Duration};
+    use std::{collections::HashMap, env, time::Duration};
 
     use apalis_workflow::{WorkFlow, WorkflowError};
-    use chrono::Local;
 
     use apalis_core::{
-        backend::poll_strategy::{IntervalStrategy, StrategyBuilder},
         error::BoxDynError,
         task::data::Data,
         worker::{builder::WorkerBuilder, event::Event, ext::event_listener::EventListenerExt},
@@ -407,9 +596,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let mut backend = PostgresStorage::new(pool, Default::default());
+        let mut backend = PostgresStorage::new(&pool);
 
-        let mut items = stream::repeat_with(|| HashMap::default()).take(1);
+        let mut items = stream::repeat_with(HashMap::default).take(1);
         backend.push_stream(&mut items).await.unwrap();
 
         async fn send_reminder(
@@ -438,13 +627,12 @@ mod tests {
         .await
         .unwrap();
         let config = Config::new("test");
-        let mut backend = PostgresStorage::new_with_notify(pool, config).await;
+        let mut backend = PostgresStorage::new_with_notify(&pool, &config).await;
 
         let mut items = stream::repeat_with(|| {
-            let task = Task::builder(42u32)
+            Task::builder(42u32)
                 .with_ctx(PgContext::new().with_priority(1))
-                .build();
-            task
+                .build()
         })
         .take(1);
         backend.push_all(&mut items).await.unwrap();
@@ -560,7 +748,8 @@ mod tests {
         .await
         .unwrap();
         let config = Config::new("test");
-        let mut backend: PostgresStorage<Vec<u8>> = PostgresStorage::new(pool, config);
+        let mut backend: PostgresStorage<Vec<u8>> =
+            PostgresStorage::new_with_config(&pool, &config);
 
         let input = UserInput {
             text: "Rust makes systems programming delightful!".to_string(),
@@ -576,15 +765,15 @@ mod tests {
             .on_event(|ctx, ev| match ev {
                 Event::Custom(msg) => {
                     if let Some(m) = msg.downcast_ref::<String>() {
-                        println!("Custom Message: {}", m);
+                        println!("Custom Message: {m}");
                     }
                 }
                 Event::Error(_) => {
-                    println!("On Error = {:?}", ev);
+                    println!("On Error = {ev:?}");
                     ctx.stop().unwrap();
                 }
                 _ => {
-                    println!("On Event = {:?}", ev);
+                    println!("On Event = {ev:?}");
                 }
             })
             .build(workflow);

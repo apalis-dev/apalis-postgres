@@ -4,7 +4,6 @@ use apalis_core::{
     task::{Parts, status::Status},
     worker::{context::WorkerContext, ext::ack::Acknowledge},
 };
-use chrono::Utc;
 use futures::{FutureExt, future::BoxFuture};
 use serde::Serialize;
 use sqlx::PgPool;
@@ -30,10 +29,10 @@ impl<Res: Serialize> Acknowledge<Res, PgContext, Ulid> for PgAck {
         res: &Result<Res, BoxDynError>,
         parts: &Parts<PgContext, Ulid>,
     ) -> Self::Future {
-        let task_id = parts.task_id.clone();
+        let task_id = parts.task_id;
         let worker_id = parts.ctx.lock_by().clone();
 
-        let response = serde_json::to_value(&res.as_ref().map_err(|e| e.to_string()));
+        let response = serde_json::to_value(res.as_ref().map_err(|e| e.to_string()));
         let status = calculate_status(parts, res);
         let attempt = parts.attempt.current() as i32;
         let pool = self.pool.clone();

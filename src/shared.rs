@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     future::ready,
     marker::PhantomData,
     pin::Pin,
@@ -15,7 +15,6 @@ use crate::{
     queries::{
         keep_alive::{initial_heartbeat, keep_alive_stream},
         reenqueue_orphaned::reenqueue_orphaned_stream,
-        register_worker::register,
     },
 };
 use crate::{from_row::PgTaskRow, sink::PgSink};
@@ -26,19 +25,17 @@ use apalis_core::{
         shared::MakeShared,
     },
     layers::Stack,
-    task::{Task, task_id::TaskId},
+    task::task_id::TaskId,
     worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
 use apalis_sql::from_row::TaskRow;
-use chrono::Utc;
 use futures::{
     FutureExt, SinkExt, Stream, StreamExt, TryStreamExt,
     channel::mpsc::{self, Receiver, Sender},
-    future::{self, BoxFuture, Shared},
+    future::{BoxFuture, Shared},
     lock::Mutex,
     stream::{self, BoxStream, select},
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sqlx::{PgPool, postgres::PgListener};
 use ulid::Ulid;
 
@@ -122,7 +119,7 @@ impl<Args, Compact, Codec> MakeShared<Args> for SharedPostgresStorage<Compact, C
             .registry
             .try_lock()
             .ok_or(SharedPostgresError::RegistryLocked)?;
-        if let Some(_) = r.insert(config.queue().to_string(), tx) {
+        if r.insert(config.queue().to_string(), tx).is_some() {
             return Err(SharedPostgresError::NamespaceExists(
                 config.queue().to_string(),
             ));
@@ -265,17 +262,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{str::FromStr, time::Duration};
+    use std::time::Duration;
 
-    use chrono::Local;
-
-    use apalis_core::{
-        backend::{TaskSink, memory::MemoryStorage},
-        error::BoxDynError,
-        worker::{builder::WorkerBuilder, event::Event, ext::event_listener::EventListenerExt},
-    };
-
-    use crate::context::PgContext;
+    use apalis_core::{backend::TaskSink, error::BoxDynError, worker::builder::WorkerBuilder};
 
     use super::*;
 
@@ -298,7 +287,7 @@ mod tests {
 
         async fn send_reminder<T, I>(
             _: T,
-            task_id: TaskId<I>,
+            _task_id: TaskId<I>,
             wrk: WorkerContext,
         ) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -312,6 +301,6 @@ mod tests {
         let map_worker = WorkerBuilder::new("rango-tango-1")
             .backend(map_store)
             .build(send_reminder);
-        let res = tokio::try_join!(int_worker.run(), map_worker.run()).unwrap();
+        tokio::try_join!(int_worker.run(), map_worker.run()).unwrap();
     }
 }

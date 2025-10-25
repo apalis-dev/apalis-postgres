@@ -1,14 +1,10 @@
 use std::{
-    pin::{self, Pin},
+    pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
 
-use apalis_core::{
-    backend::codec::{Codec, json::JsonCodec},
-    error::BoxDynError,
-    task::metadata,
-};
+use apalis_core::backend::codec::json::JsonCodec;
 use chrono::DateTime;
 use futures::{
     FutureExt, Sink, TryFutureExt,
@@ -43,7 +39,7 @@ impl<Args, Compact, Codec> Clone for PgSink<Args, Compact, Codec> {
     }
 }
 
-async fn push_tasks(
+pub async fn push_tasks(
     pool: PgPool,
     cfg: Config,
     buffer: Vec<PgTask<CompactType>>,
