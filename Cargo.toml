@@ -4,8 +4,14 @@ version = "1.0.0-alpha.1"
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
 edition = "2024"
 repository = "https://github.com/apalis-dev/apalis-postgres"
-license = "MIT"
+license-file = "LICENSE"
 description = "Background task processing for rust using apalis and postgres"
+readme = "README.md"
+homepage = "https://github.com/apalis-dev/apalis-postgres"
+documentation = "https://docs.rs/apalis-postgres"
+keywords = ["apalis", "postgres", "jobs", "queue", "worker"]
+categories = ["asynchronous", "databases", "network-programming"]
+publish = true
 
 [features]
 default = ["migrate", "tokio-comp"]
