@@ -22,3 +22,6 @@ target
 
 # Ignore dotenv environment variable files
 .env
+
+# Cargo
+Cargo.lock
