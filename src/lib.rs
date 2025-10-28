@@ -94,7 +94,7 @@
 //!     let config = Config::new("queue")
 //!         .with_poll_interval(lazy_strategy)
 //!         .set_buffer_size(5);
-//!     let backend = PostgresStorage::new_with_notify(&pool, &config).await;
+//!     let backend = PostgresStorage::new_with_notify(&pool, &config);
 //!
 //!     tokio::spawn({
 //!         let pool = pool.clone();
@@ -652,7 +652,7 @@ mod tests {
         .await
         .unwrap();
         let config = Config::new("test");
-        let mut backend = PostgresStorage::new_with_notify(&pool, &config).await;
+        let mut backend = PostgresStorage::new_with_notify(&pool, &config);
 
         let mut items = stream::repeat_with(|| {
             Task::builder(42u32)

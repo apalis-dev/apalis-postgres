@@ -25,7 +25,7 @@ The naming is designed to clearly indicate the storage mechanism and its capabil
 ```rust,no_run
 #[tokio::main]
 async fn main() {
-    let pool = PgPool::connect(env!("DATABASE_URL").unwrap()).await.unwrap();
+    let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
     let mut backend = PostgresStorage::new(&pool);
 
@@ -58,7 +58,7 @@ async fn main() {
 
 #[tokio::main]
 async fn main() {
-    let pool = PostgresPool::connect(env!("DATABASE_URL").unwrap()).await.unwrap();
+    let pool = PostgresPool::connect(env!("DATABASE_URL")).await.unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
 
     let lazy_strategy = StrategyBuilder::new()
@@ -67,7 +67,7 @@ async fn main() {
     let config = Config::new("queue")
         .with_poll_interval(lazy_strategy)
         .set_buffer_size(5);
-    let backend = PostgresStorage::new_with_notify(&pool, &config).await;
+    let backend = PostgresStorage::new_with_notify(&pool, &config);
 
     tokio::spawn({
         let pool = pool.clone();
