@@ -190,7 +190,7 @@
 //! ## License
 //!
 //! Licensed under either of Apache License, Version 2.0 or MIT license at your option.
-//! 
+//!
 //! [`PostgresStorageWithListener`]: crate::PostgresStorage
 //! [`SharedPostgresStorage`]: crate::shared::SharedPostgresStorage
 use std::{fmt::Debug, marker::PhantomData};
@@ -211,7 +211,7 @@ use futures::{
     stream::{self, BoxStream, select},
 };
 use serde::Deserialize;
-use sqlx::{PgPool, postgres::PgListener};
+pub use sqlx::{PgPool, postgres::PgConnectOptions, postgres::PgListener, postgres::Postgres};
 use ulid::Ulid;
 
 use crate::{
@@ -227,7 +227,7 @@ use crate::{
 };
 
 mod ack;
-mod config;
+pub mod config;
 mod fetcher;
 mod from_row {
     use chrono::{DateTime, Utc};
@@ -278,7 +278,7 @@ mod from_row {
         }
     }
 }
-mod context {
+pub mod context {
     pub type PgContext = apalis_sql::context::SqlContext;
 }
 mod queries;
@@ -288,6 +288,11 @@ pub mod sink;
 pub type PgTask<Args> = Task<Args, PgContext, Ulid>;
 
 pub type CompactType = Vec<u8>;
+
+#[derive(Debug, Clone, Default)]
+pub struct PgNotify {
+    _private: PhantomData<()>,
+}
 
 #[pin_project::pin_project]
 pub struct PostgresStorage<
@@ -354,20 +359,17 @@ impl<Args> PostgresStorage<Args> {
         }
     }
 
-    pub async fn new_with_notify(
+    pub fn new_with_notify(
         pool: &PgPool,
         config: &Config,
-    ) -> PostgresStorage<Args, CompactType, JsonCodec<CompactType>, PgListener> {
+    ) -> PostgresStorage<Args, CompactType, JsonCodec<CompactType>, PgNotify> {
         let sink = PgSink::new(pool, config);
-        let mut fetcher = PgListener::connect_with(pool)
-            .await
-            .expect("Failed to create listener");
-        fetcher.listen("apalis::job::insert").await.unwrap();
+
         PostgresStorage {
             _marker: PhantomData,
             pool: pool.clone(),
             config: config.clone(),
-            fetcher,
+            fetcher: PgNotify::default(),
             sink,
         }
     }
@@ -380,6 +382,18 @@ impl<Args> PostgresStorage<Args> {
     /// Returns a reference to the config.
     pub fn config(&self) -> &Config {
         &self.config
+    }
+}
+
+impl<Args, Compact, Codec, Fetcher> PostgresStorage<Args, Compact, Codec, Fetcher> {
+    pub fn with_codec<NewCodec>(self) -> PostgresStorage<Args, Compact, NewCodec, Fetcher> {
+        PostgresStorage {
+            _marker: PhantomData,
+            sink: PgSink::new(&self.pool, &self.config),
+            pool: self.pool,
+            config: self.config,
+            fetcher: self.fetcher,
+        }
     }
 }
 
@@ -448,7 +462,7 @@ where
     }
 }
 
-impl<Args, Decode> Backend for PostgresStorage<Args, CompactType, Decode, PgListener>
+impl<Args, Decode> Backend for PostgresStorage<Args, CompactType, Decode, PgNotify>
 where
     Args: Send + 'static + Unpin,
     Decode: Codec<Args, Compact = CompactType> + 'static + Send,
@@ -497,6 +511,15 @@ where
         let pool = self.pool.clone();
         let worker_id = worker.name().to_owned();
         let namespace = self.config.queue().to_string();
+        let listener = async move {
+            let mut fetcher = PgListener::connect_with(&pool)
+                .await
+                .expect("Failed to create listener");
+            fetcher.listen("apalis::job::insert").await.unwrap();
+            fetcher
+        };
+        let fetcher = stream::once(listener).flat_map(|f| f.into_stream());
+        let pool = self.pool.clone();
         let register_worker = initial_heartbeat(
             self.pool.clone(),
             self.config.clone(),
@@ -505,8 +528,7 @@ where
         )
         .map(|_| Ok(None));
         let register = stream::once(register_worker);
-        let lazy_fetcher = self
-            .fetcher
+        let lazy_fetcher = fetcher
             .into_stream()
             .filter_map(move |notification| {
                 let namespace = namespace.clone();

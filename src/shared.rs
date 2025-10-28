@@ -130,7 +130,7 @@ impl<Args, Compact, Codec> MakeShared<Args> for SharedPostgresStorage<Compact, C
             config,
             fetcher: SharedFetcher {
                 poller: self.drive.clone(),
-                receiver: rx,
+                receiver: Arc::new(Mutex::new(rx)),
             },
             pool: self.pool.clone(),
             sink,
@@ -138,9 +138,10 @@ impl<Args, Compact, Codec> MakeShared<Args> for SharedPostgresStorage<Compact, C
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct SharedFetcher {
     poller: Shared<BoxFuture<'static, ()>>,
-    receiver: Receiver<TaskId>,
+    receiver: Arc<Mutex<Receiver<TaskId>>>,
 }
 
 impl Stream for SharedFetcher {
@@ -152,7 +153,12 @@ impl Stream for SharedFetcher {
         let _ = this.poller.poll_unpin(cx);
 
         // Delegate actual items to receiver
-        this.receiver.poll_next_unpin(cx)
+        let mut receiver = this.receiver.try_lock();
+        if let Some(ref mut rx) = receiver {
+            rx.poll_next_unpin(cx)
+        } else {
+            Poll::Pending
+        }
     }
 }
 
