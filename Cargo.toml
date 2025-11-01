@@ -1,6 +1,6 @@
 [package]
 name = "apalis-postgres"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
 edition = "2024"
 repository = "https://github.com/apalis-dev/apalis-postgres"
@@ -22,11 +22,11 @@ tokio-comp = ["tokio", "sqlx/runtime-tokio-rustls"]
 tokio-comp-native-tls = ["tokio", "sqlx/runtime-tokio-native-tls"]
 
 [dependencies]
-apalis-core = { version = "1.0.0-alpha.7", default-features = false, features = [
+apalis-core = { version = "1.0.0-alpha.8", default-features = false, features = [
   "sleep",
   "json",
 ] }
-apalis-sql = { version = "1.0.0-alpha.7", default-features = false }
+apalis-sql = { version = "1.0.0-alpha.8", default-features = false }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 pin-project = "1.1.10"
@@ -46,5 +46,5 @@ features = ["chrono", "postgres", "json"]
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 once_cell = "1.19.0"
-apalis-core = { version = "1.0.0-alpha.7", features = ["test-utils"] }
-apalis-workflow = { version = "0.1.0-alpha.5" }
+apalis-core = { version = "1.0.0-alpha.8", features = ["test-utils"] }
+apalis-workflow = { version = "0.1.0-alpha.6" }

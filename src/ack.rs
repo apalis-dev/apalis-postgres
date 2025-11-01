@@ -11,7 +11,7 @@ use ulid::Ulid;
 
 use crate::{PgTask, context::PgContext};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PgAck {
     pool: PgPool,
 }
@@ -81,6 +81,8 @@ pub async fn lock_task(pool: &PgPool, task_id: &Ulid, worker_id: &str) -> Result
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+
 pub struct LockTaskLayer {
     pool: PgPool,
 }
@@ -102,6 +104,7 @@ impl<S> Layer<S> for LockTaskLayer {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct LockTaskService<S> {
     inner: S,
     pool: PgPool,
