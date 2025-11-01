@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use futures::{FutureExt, Stream, stream};
-use sqlx::{postgres::types::PgInterval, PgPool};
+use sqlx::{PgPool, postgres::types::PgInterval};
 
 use crate::Config;
 

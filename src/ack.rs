@@ -105,7 +105,6 @@ impl<S> Layer<S> for LockTaskLayer {
 }
 
 #[derive(Debug, Clone)]
-
 pub struct LockTaskService<S> {
     inner: S,
     pool: PgPool,
