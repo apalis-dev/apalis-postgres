@@ -10,7 +10,7 @@ use futures::{
     FutureExt, Sink, TryFutureExt,
     future::{BoxFuture, Shared},
 };
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use ulid::Ulid;
 
 use crate::{CompactType, PgTask, PostgresStorage, config::Config};
@@ -41,6 +41,15 @@ impl<Args, Compact, Codec> Clone for PgSink<Args, Compact, Codec> {
 
 pub async fn push_tasks(
     pool: PgPool,
+    cfg: Config,
+    buffer: Vec<PgTask<CompactType>>,
+) -> Result<(), sqlx::Error> {
+    let mut conn = pool.begin().await?;
+    push_tasks_using(&mut *conn, cfg, buffer).await
+}
+
+pub async fn push_tasks_using(
+    conn: &mut PgConnection,
     cfg: Config,
     buffer: Vec<PgTask<CompactType>>,
 ) -> Result<(), sqlx::Error> {
@@ -80,8 +89,9 @@ pub async fn push_tasks(
         &priorities,
         &metadata
     )
-    .execute(&pool)
+    .execute(&mut *conn)
     .await?;
+
     Ok(())
 }
 
