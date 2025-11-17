@@ -9,8 +9,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  DATABASE_URL: postgres://postgres:postgres@localhost/postgres
 
 jobs:
+  
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}
@@ -21,6 +23,14 @@ jobs:
         include:
           - os: ubuntu-latest
             rust: nightly
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+      
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -42,11 +52,8 @@ jobs:
             ${{ runner.os }}-cargo-${{ matrix.rust }}-
             ${{ runner.os }}-cargo-
 
-      - name: Run cargo test
-        run: cargo test --verbose
-
       - name: Run cargo test with all features
-        run: cargo test --all-features --verbose
+        run: cargo test --all-features --verbose --test-threads=1
 
   fmt:
     name: Rustfmt
