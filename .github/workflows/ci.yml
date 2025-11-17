@@ -12,7 +12,20 @@ env:
   DATABASE_URL: postgres://postgres:postgres@localhost/postgres
 
 jobs:
-  
+  defaults:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}
@@ -23,14 +36,7 @@ jobs:
         include:
           - os: ubuntu-latest
             rust: nightly
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-      
+
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
