@@ -9,7 +9,7 @@ use serde::Serialize;
 use sqlx::PgPool;
 use ulid::Ulid;
 
-use crate::{PgTask, PgContext};
+use crate::{PgContext, PgTask};
 
 #[derive(Debug, Clone)]
 pub struct PgAck {

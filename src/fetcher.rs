@@ -6,11 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use apalis_core::{
-    task::Task,
-    timer::Delay,
-    worker::context::WorkerContext,
-};
+use apalis_core::{task::Task, timer::Delay, worker::context::WorkerContext};
 use apalis_sql::from_row::TaskRow;
 use futures::{Future, FutureExt, future::BoxFuture, stream::Stream};
 use pin_project::pin_project;
@@ -18,7 +14,7 @@ use pin_project::pin_project;
 use sqlx::{PgPool, Pool, Postgres};
 use ulid::Ulid;
 
-use crate::{CompactType, PgTask, config::Config, PgContext, from_row::PgTaskRow};
+use crate::{CompactType, PgContext, PgTask, config::Config, from_row::PgTaskRow};
 
 async fn fetch_next(
     pool: PgPool,

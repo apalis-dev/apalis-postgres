@@ -8,10 +8,13 @@ use std::{
 };
 
 use crate::{
-    CompactType, Config, InsertEvent, PgContext, PgTask, PostgresStorage, ack::{LockTaskLayer, PgAck}, fetcher::PgPollFetcher, queries::{
+    CompactType, Config, InsertEvent, PgContext, PgTask, PostgresStorage,
+    ack::{LockTaskLayer, PgAck},
+    fetcher::PgPollFetcher,
+    queries::{
         keep_alive::{initial_heartbeat, keep_alive_stream},
         reenqueue_orphaned::reenqueue_orphaned_stream,
-    }
+    },
 };
 use crate::{from_row::PgTaskRow, sink::PgSink};
 use apalis_core::{
