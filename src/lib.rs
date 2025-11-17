@@ -1,195 +1,4 @@
-//! # apalis-postgres
-//!
-//! Background task processing in rust using `apalis` and `postgres`
-//!
-//! ## Features
-//!
-//! - **Reliable job queue** using Postgres as the backend.
-//! - **Multiple storage types**: standard polling and `trigger` based storages.
-//! - **Custom codecs** for serializing/deserializing job arguments as bytes.
-//! - **Heartbeat and orphaned job re-enqueueing** for robust task processing.
-//! - **Integration with `apalis` workers and middleware.**
-//!
-//! ## Storage Types
-//!
-//! - [`PostgresStorage`]: Standard polling-based storage.
-//! - [`PostgresStorageWithListener`]: Event-driven storage using Postgres `NOTIFY` for low-latency job fetching.
-//! - [`SharedPostgresStorage`]: Shared storage for multiple job types, uses Postgres `NOTIFY`.
-//!
-//! The naming is designed to clearly indicate the storage mechanism and its capabilities, but under the hood the result is the `PostgresStorage` struct with different configurations.
-//!
-//! ## Examples
-//!
-//! ### Basic Worker Example
-//!
-//! ```rust,no_run
-//! # use std::time::Duration;
-//! # use apalis_postgres::PostgresStorage;
-//! # use apalis_core::worker::builder::WorkerBuilder;
-//! # use apalis_core::worker::event::Event;
-//! # use apalis_core::task::Task;
-//! # use apalis_core::worker::context::WorkerContext;
-//! # use apalis_core::error::BoxDynError;
-//! # use sqlx::PgPool;
-//! # use futures::stream;
-//! # use apalis_sql::context::SqlContext;
-//! # use futures::SinkExt;
-//! # use apalis_sql::config::Config;
-//! # use futures::StreamExt;
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
-//!     PostgresStorage::setup(&pool).await.unwrap();
-//!     let mut backend = PostgresStorage::new_with_config(&pool, &Config::new("int-queue"));
-//!
-//!     let mut start = 0;
-//!     let mut items = stream::repeat_with(move || {
-//!         start += 1;
-//!         let task = Task::builder(serde_json::to_vec(&start).unwrap())
-//!             .run_after(Duration::from_secs(1))
-//!             .with_ctx(SqlContext::new().with_priority(1))
-//!             .build();
-//!         Ok(task)
-//!     })
-//!     .take(10);
-//!     backend.send_all(&mut items).await.unwrap();
-//!
-//!     async fn send_reminder(item: usize, wrk: WorkerContext) -> Result<(), BoxDynError> {
-//!         Ok(())
-//!     }
-//!
-//!     let worker = WorkerBuilder::new("worker-1")
-//!         .backend(backend)
-//!         .build(send_reminder);
-//!     worker.run().await.unwrap();
-//! }
-//! ```
-//!
-//! ### `NOTIFY` listener example
-//!
-//! ```rust,no_run
-//! # use std::time::Duration;
-//! # use apalis_postgres::PostgresStorage;
-//! # use apalis_core::worker::builder::WorkerBuilder;
-//! # use apalis_core::worker::event::Event;
-//! # use apalis_core::task::Task;
-//! # use sqlx::PgPool;
-//! # use apalis_core::backend::poll_strategy::StrategyBuilder;
-//! # use apalis_core::backend::poll_strategy::IntervalStrategy;
-//! # use apalis_sql::config::Config;
-//! # use futures::stream;
-//! # use apalis_sql::context::SqlContext;
-//! # use apalis_core::error::BoxDynError;
-//! # use futures::StreamExt;
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
-//!     PostgresStorage::setup(&pool).await.unwrap();
-//!
-//!     let lazy_strategy = StrategyBuilder::new()
-//!         .apply(IntervalStrategy::new(Duration::from_secs(5)))
-//!         .build();
-//!     let config = Config::new("queue")
-//!         .with_poll_interval(lazy_strategy)
-//!         .set_buffer_size(5);
-//!     let backend = PostgresStorage::new_with_notify(&pool, &config);
-//!
-//!     tokio::spawn({
-//!         let pool = pool.clone();
-//!         let config = config.clone();
-//!         async move {
-//!             tokio::time::sleep(Duration::from_secs(2)).await;
-//!             let mut start = 0;
-//!             let items = stream::repeat_with(move || {
-//!                 start += 1;
-//!                 Task::builder(serde_json::to_vec(&start).unwrap())
-//!                     .run_after(Duration::from_secs(1))
-//!                     .with_ctx(SqlContext::new().with_priority(start))
-//!                     .build()
-//!             })
-//!             .take(20)
-//!             .collect::<Vec<_>>()
-//!             .await;
-//!             apalis_postgres::sink::push_tasks(pool, config, items).await.unwrap();
-//!         }
-//!     });
-//!
-//!     async fn send_reminder(task: usize) -> Result<(), BoxDynError> {
-//!         Ok(())
-//!     }
-//!
-//!     let worker = WorkerBuilder::new("worker-2")
-//!         .backend(backend)
-//!         .build(send_reminder);
-//!     worker.run().await.unwrap();
-//! }
-//! ```
-//!
-//! ### Workflow Example
-//!
-//! ```rust,no_run
-//! # use apalis_workflow::WorkFlow;
-//! # use apalis_workflow::WorkflowError;
-//! # use std::time::Duration;
-//! # use apalis_postgres::PostgresStorage;
-//! # use apalis_core::worker::builder::WorkerBuilder;
-//! # use apalis_core::worker::ext::event_listener::EventListenerExt;
-//! # use apalis_core::worker::event::Event;
-//! # use sqlx::PgPool;
-//! # use apalis_sql::config::Config;
-//! # use apalis_core::backend::WeakTaskSink;
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     let workflow = WorkFlow::new("odd-numbers-workflow")
-//!         .then(|a: usize| async move {
-//!             Ok::<_, WorkflowError>((0..=a).collect::<Vec<_>>())
-//!         })
-//!         .filter_map(|x| async move {
-//!             if x % 2 != 0 { Some(x) } else { None }
-//!         })
-//!         .filter_map(|x| async move {
-//!             if x % 3 != 0 { Some(x) } else { None }
-//!         })
-//!         .filter_map(|x| async move {
-//!             if x % 5 != 0 { Some(x) } else { None }
-//!         })
-//!         .delay_for(Duration::from_millis(1000))
-//!         .then(|a: Vec<usize>| async move {
-//!             println!("Sum: {}", a.iter().sum::<usize>());
-//!             Ok::<(), WorkflowError>(())
-//!         });
-//!
-//!     let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
-//!     PostgresStorage::setup(&pool).await.unwrap();
-//!     let mut backend = PostgresStorage::new_with_config(&pool, &Config::new("workflow-queue"));
-//!
-//!     backend.push(100usize).await.unwrap();
-//!
-//!     let worker = WorkerBuilder::new("rango-tango")
-//!         .backend(backend)
-//!         .on_event(|ctx, ev| {
-//!             println!("On Event = {:?}", ev);
-//!             if matches!(ev, Event::Error(_)) {
-//!                 ctx.stop().unwrap();
-//!             }
-//!         })
-//!         .build(workflow);
-//!
-//!     worker.run().await.unwrap();
-//! }
-//! ```
-//!
-//! ## Observability
-//!
-//! You can track your jobs using [apalis-board](https://github.com/apalis-dev/apalis-board).
-//! ![Task](https://github.com/apalis-dev/apalis-board/raw/master/screenshots/task.png)
-//!
-//! ## License
-//!
-//! Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+#![doc = include_str!("../README.md")]
 //!
 //! [`PostgresStorageWithListener`]: crate::PostgresStorage
 //! [`SharedPostgresStorage`]: crate::shared::SharedPostgresStorage
@@ -197,16 +6,17 @@ use std::{fmt::Debug, marker::PhantomData};
 
 use apalis_core::{
     backend::{
-        Backend, TaskStream,
+        Backend, BackendExt, TaskStream,
         codec::{Codec, json::JsonCodec},
     },
+    features_table,
     layers::Stack,
     task::{Task, task_id::TaskId},
     worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
 use apalis_sql::from_row::TaskRow;
 use futures::{
-    FutureExt, StreamExt, TryStreamExt,
+    StreamExt, TryFutureExt, TryStreamExt,
     future::ready,
     stream::{self, BoxStream, select},
 };
@@ -214,10 +24,8 @@ use serde::Deserialize;
 pub use sqlx::{PgPool, postgres::PgConnectOptions, postgres::PgListener, postgres::Postgres};
 use ulid::Ulid;
 
-use crate::{
+pub use crate::{
     ack::{LockTaskLayer, PgAck},
-    config::Config,
-    context::PgContext,
     fetcher::{PgFetcher, PgPollFetcher},
     queries::{
         keep_alive::{initial_heartbeat, keep_alive_stream},
@@ -227,60 +35,13 @@ use crate::{
 };
 
 mod ack;
-pub mod config;
+mod config;
 mod fetcher;
-mod from_row {
-    use chrono::{DateTime, Utc};
-    #[derive(Debug)]
-    pub struct PgTaskRow {
-        pub job: Option<Vec<u8>>,
-        pub id: Option<String>,
-        pub job_type: Option<String>,
-        pub status: Option<String>,
-        pub attempts: Option<i32>,
-        pub max_attempts: Option<i32>,
-        pub run_at: Option<DateTime<Utc>>,
-        pub last_result: Option<serde_json::Value>,
-        pub lock_at: Option<DateTime<Utc>>,
-        pub lock_by: Option<String>,
-        pub done_at: Option<DateTime<Utc>>,
-        pub priority: Option<i32>,
-        pub metadata: Option<serde_json::Value>,
-    }
-    impl TryInto<apalis_sql::from_row::TaskRow> for PgTaskRow {
-        type Error = sqlx::Error;
+mod from_row;
 
-        fn try_into(self) -> Result<apalis_sql::from_row::TaskRow, Self::Error> {
-            Ok(apalis_sql::from_row::TaskRow {
-                job: self.job.unwrap_or_default(),
-                id: self
-                    .id
-                    .ok_or_else(|| sqlx::Error::Protocol("Missing id".into()))?,
-                job_type: self
-                    .job_type
-                    .ok_or_else(|| sqlx::Error::Protocol("Missing job_type".into()))?,
-                status: self
-                    .status
-                    .ok_or_else(|| sqlx::Error::Protocol("Missing status".into()))?,
-                attempts: self
-                    .attempts
-                    .ok_or_else(|| sqlx::Error::Protocol("Missing attempts".into()))?
-                    as usize,
-                max_attempts: self.max_attempts.map(|v| v as usize),
-                run_at: self.run_at,
-                last_result: self.last_result,
-                lock_at: self.lock_at,
-                lock_by: self.lock_by,
-                done_at: self.done_at,
-                priority: self.priority.map(|v| v as usize),
-                metadata: self.metadata,
-            })
-        }
-    }
-}
-pub mod context {
-    pub type PgContext = apalis_sql::context::SqlContext;
-}
+pub type PgContext = apalis_sql::context::SqlContext;
+pub use config::Config;
+
 mod queries;
 pub mod shared;
 pub mod sink;
@@ -294,6 +55,31 @@ pub struct PgNotify {
     _private: PhantomData<()>,
 }
 
+#[doc = features_table! {
+    setup = r#"
+        # {
+        #   use apalis_postgres::PostgresStorage;
+        #   use sqlx::PgPool;
+        #   let pool = PgPool::connect(std::env::var("DATABASE_URL").unwrap().as_str()).await.unwrap();
+        #   PostgresStorage::setup(&pool).await.unwrap();
+        #   PostgresStorage::new(&pool)
+        # };
+    "#,
+
+    Backend => supported("Supports storage and retrieval of tasks", true),
+    TaskSink => supported("Ability to push new tasks", true),
+    Serialization => supported("Serialization support for arguments", true),
+    Workflow => supported("Flexible enough to support workflows", true),
+    WebUI => supported("Expose a web interface for monitoring tasks", true),
+    FetchById => supported("Allow fetching a task by its ID", false),
+    RegisterWorker => supported("Allow registering a worker with the backend", false),
+    MakeShared => supported("Share one connection across multiple workers via [`SharedPostgresStorage`]", false),
+    WaitForCompletion => supported("Wait for tasks to complete without blocking", true),
+    ResumeById => supported("Resume a task by its ID", false),
+    ResumeAbandoned => supported("Resume abandoned tasks", false),
+    ListWorkers => supported("List all workers registered with the backend", false),
+    ListTasks => supported("List all tasks in the backend", false),
+}]
 #[pin_project::pin_project]
 pub struct PostgresStorage<
     Args,
@@ -406,13 +192,9 @@ where
 {
     type Args = Args;
 
-    type Compact = CompactType;
-
     type IdType = Ulid;
 
     type Context = PgContext;
-
-    type Codec = Decode;
 
     type Error = sqlx::Error;
 
@@ -444,16 +226,50 @@ where
     }
 
     fn poll(self, worker: &WorkerContext) -> Self::Stream {
+        self.poll_basic(worker)
+            .map(|a| match a {
+                Ok(Some(task)) => Ok(Some(
+                    task.try_map(|t| Decode::decode(&t))
+                        .map_err(|e| sqlx::Error::Decode(e.into()))?,
+                )),
+                Ok(None) => Ok(None),
+                Err(e) => Err(e),
+            })
+            .boxed()
+    }
+}
+
+impl<Args, Decode> BackendExt
+    for PostgresStorage<Args, CompactType, Decode, PgFetcher<Args, CompactType, Decode>>
+where
+    Args: Send + 'static + Unpin,
+    Decode: Codec<Args, Compact = CompactType> + Send + 'static,
+    Decode::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Compact = CompactType;
+
+    type Codec = Decode;
+    type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
+    fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
+        self.poll_basic(worker).boxed()
+    }
+}
+
+impl<Args, Decode> PostgresStorage<Args, CompactType, Decode, PgFetcher<Args, CompactType, Decode>>
+where
+    Args: Send + 'static + Unpin,
+{
+    fn poll_basic(&self, worker: &WorkerContext) -> TaskStream<PgTask<CompactType>, sqlx::Error> {
         let register_worker = initial_heartbeat(
             self.pool.clone(),
             self.config.clone(),
             worker.clone(),
             "PostgresStorage",
         )
-        .map(|_| Ok(None));
+        .map_ok(|_| None);
         let register = stream::once(register_worker);
         register
-            .chain(PgPollFetcher::<Args, CompactType, Decode>::new(
+            .chain(PgPollFetcher::<CompactType>::new(
                 &self.pool,
                 &self.config,
                 worker,
@@ -470,13 +286,9 @@ where
 {
     type Args = Args;
 
-    type Compact = CompactType;
-
     type IdType = Ulid;
 
     type Context = PgContext;
-
-    type Codec = Decode;
 
     type Error = sqlx::Error;
 
@@ -508,6 +320,39 @@ where
     }
 
     fn poll(self, worker: &WorkerContext) -> Self::Stream {
+        self.poll_with_notify(worker)
+            .map(|a| match a {
+                Ok(Some(task)) => Ok(Some(
+                    task.try_map(|t| Decode::decode(&t))
+                        .map_err(|e| sqlx::Error::Decode(e.into()))?,
+                )),
+                Ok(None) => Ok(None),
+                Err(e) => Err(e),
+            })
+            .boxed()
+    }
+}
+
+impl<Args, Decode> BackendExt for PostgresStorage<Args, CompactType, Decode, PgNotify>
+where
+    Args: Send + 'static + Unpin,
+    Decode: Codec<Args, Compact = CompactType> + 'static + Unpin + Send,
+    Decode::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Compact = CompactType;
+
+    type Codec = Decode;
+    type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
+    fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
+        self.poll_with_notify(worker).boxed()
+    }
+}
+
+impl<Args, Decode> PostgresStorage<Args, CompactType, Decode, PgNotify> {
+    pub fn poll_with_notify(
+        &self,
+        worker: &WorkerContext,
+    ) -> TaskStream<PgTask<CompactType>, sqlx::Error> {
         let pool = self.pool.clone();
         let worker_id = worker.name().to_owned();
         let namespace = self.config.queue().to_string();
@@ -526,7 +371,7 @@ where
             worker.clone(),
             "PostgresStorageWithNotify",
         )
-        .map(|_| Ok(None));
+        .map_ok(|_| None);
         let register = stream::once(register_worker);
         let lazy_fetcher = fetcher
             .into_stream()
@@ -553,7 +398,7 @@ where
                     use crate::from_row::PgTaskRow;
                     let res: Vec<_> = sqlx::query_file_as!(
                         PgTaskRow,
-                        "queries/task/lock_by_id.sql",
+                        "queries/task/queue_by_id.sql",
                         &ids,
                         &worker_id
                     )
@@ -561,7 +406,7 @@ where
                     .map(|r| {
                         let row: TaskRow = r?.try_into()?;
                         Ok(Some(
-                            row.try_into_task::<Decode, Args, Ulid>()
+                            row.try_into_task_compact()
                                 .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
                         ))
                     })
@@ -581,7 +426,7 @@ where
             })
             .boxed();
 
-        let eager_fetcher = StreamExt::boxed(PgPollFetcher::<Args, CompactType, Decode>::new(
+        let eager_fetcher = StreamExt::boxed(PgPollFetcher::<CompactType>::new(
             &self.pool,
             &self.config,
             worker,
@@ -598,11 +443,17 @@ pub struct InsertEvent {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, env, time::Duration};
+    use std::{
+        collections::HashMap,
+        env,
+        time::{Duration, Instant},
+    };
 
-    use apalis_workflow::{WorkFlow, WorkflowError};
+    use apalis_workflow::Workflow;
+    use apalis_workflow::WorkflowSink;
 
     use apalis_core::{
+        backend::poll_strategy::{IntervalStrategy, StrategyBuilder},
         error::BoxDynError,
         task::data::Data,
         worker::{builder::WorkerBuilder, event::Event, ext::event_listener::EventListenerExt},
@@ -651,32 +502,45 @@ mod tests {
         )
         .await
         .unwrap();
-        let config = Config::new("test");
-        let mut backend = PostgresStorage::new_with_notify(&pool, &config);
+        let config = Config::new("test").with_poll_interval(
+            StrategyBuilder::new()
+                .apply(IntervalStrategy::new(Duration::from_secs(6)))
+                .build(),
+        );
+        let backend = PostgresStorage::new_with_notify(&pool, &config);
 
-        let mut items = stream::repeat_with(|| {
-            Task::builder(42u32)
-                .with_ctx(PgContext::new().with_priority(1))
-                .build()
-        })
-        .take(1);
-        backend.push_all(&mut items).await.unwrap();
+        let mut b = backend.clone();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let mut items = stream::repeat_with(|| {
+                Task::builder(42u32)
+                    .with_ctx(PgContext::new().with_priority(1))
+                    .build()
+            })
+            .take(1);
+            b.push_all(&mut items).await.unwrap();
+        });
 
         async fn send_reminder(_: u32, wrk: WorkerContext) -> Result<(), BoxDynError> {
-            tokio::time::sleep(Duration::from_secs(2)).await;
             wrk.stop().unwrap();
             Ok(())
         }
 
-        let worker = WorkerBuilder::new("rango-tango-1")
+        let instant = Instant::now();
+        let worker = WorkerBuilder::new("rango-tango-2")
             .backend(backend)
             .build(send_reminder);
         worker.run().await.unwrap();
+        let run_for = instant.elapsed();
+        assert!(
+            run_for < Duration::from_secs(4),
+            "Worker did not use notify mechanism"
+        );
     }
 
     #[tokio::test]
     async fn test_workflow_complete() {
-        use apalis_core::backend::WeakTaskSink;
         #[derive(Debug, Serialize, Deserialize, Clone)]
         struct PipelineConfig {
             min_confidence: f32,
@@ -701,18 +565,18 @@ mod tests {
             sentiment: Option<String>,
         }
 
-        let workflow = WorkFlow::new("text-pipeline")
+        let workflow = Workflow::new("text-pipeline")
             // Step 1: Preprocess input (e.g., tokenize, lowercase)
-            .then(|input: UserInput, mut worker: WorkerContext| async move {
+            .and_then(|input: UserInput, mut worker: WorkerContext| async move {
                 worker.emit(&Event::Custom(Box::new(format!(
                     "Preprocessing input: {}",
                     input.text
                 ))));
                 let processed = input.text.to_lowercase();
-                Ok::<_, WorkflowError>(processed)
+                Ok::<_, BoxDynError>(processed)
             })
             // Step 2: Classify text
-            .then(|text: String| async move {
+            .and_then(|text: String| async move {
                 let confidence = 0.85; // pretend model confidence
                 let items = text.split_whitespace().collect::<Vec<_>>();
                 let results = items
@@ -728,7 +592,7 @@ mod tests {
                         confidence,
                     })
                     .collect::<Vec<_>>();
-                Ok::<_, WorkflowError>(results)
+                Ok::<_, BoxDynError>(results)
             })
             // Step 3: Filter out low-confidence predictions
             .filter_map(
@@ -756,7 +620,7 @@ mod tests {
                     })
                 }
             })
-            .then(|a: Vec<Summary>, mut worker: WorkerContext| async move {
+            .and_then(|a: Vec<Summary>, mut worker: WorkerContext| async move {
                 dbg!(&a);
                 worker.emit(&Event::Custom(Box::new(format!(
                     "Generated {} summaries",
@@ -772,14 +636,17 @@ mod tests {
         )
         .await
         .unwrap();
-        let config = Config::new("test");
-        let mut backend: PostgresStorage<Vec<u8>> =
-            PostgresStorage::new_with_config(&pool, &config);
+        let config = Config::new("test").with_poll_interval(
+            StrategyBuilder::new()
+                .apply(IntervalStrategy::new(Duration::from_secs(1)))
+                .build(),
+        );
+        let mut backend = PostgresStorage::new_with_notify(&pool, &config);
 
         let input = UserInput {
             text: "Rust makes systems programming delightful!".to_string(),
         };
-        backend.push(input).await.unwrap();
+        backend.push_start(input).await.unwrap();
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(backend)

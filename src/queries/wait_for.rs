@@ -1,7 +1,7 @@
 use std::{collections::HashSet, str::FromStr, vec};
 
 use apalis_core::{
-    backend::{Backend, TaskResult, WaitForCompletion},
+    backend::{BackendExt, TaskResult, WaitForCompletion},
     task::{status::Status, task_id::TaskId},
 };
 use apalis_sql::context::SqlContext;
@@ -22,7 +22,7 @@ impl<O: 'static + Send, Args, F, Decode> WaitForCompletion<O>
     for PostgresStorage<Args, CompactType, Decode, F>
 where
     PostgresStorage<Args, CompactType, Decode, F>:
-        Backend<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
     Result<O, String>: DeserializeOwned,
 {
     type ResultStream = BoxStream<'static, Result<TaskResult<O>, Self::Error>>;

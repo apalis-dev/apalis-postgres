@@ -9,6 +9,7 @@ Background task processing in rust using `apalis` and `postgres`
 - **Custom codecs** for serializing/deserializing job arguments as bytes.
 - **Heartbeat and orphaned job re-enqueueing** for robust task processing.
 - **Integration with `apalis` workers and middleware.**
+- **Observability**: Monitor and manage tasks using [apalis-board](https://github.com/apalis-dev/apalis-board).
 
 ## Storage Types
 
@@ -23,23 +24,29 @@ The naming is designed to clearly indicate the storage mechanism and its capabil
 ### Basic Worker Example
 
 ```rust,no_run
+use std::time::Duration;
+
+use apalis::prelude::*;
+use apalis_postgres::*;
+use futures::stream::{self, StreamExt};
+
 #[tokio::main]
 async fn main() {
     let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
     let mut backend = PostgresStorage::new(&pool);
 
-    let mut start = 0;
+    let mut start = 0usize;
     let mut items = stream::repeat_with(move || {
         start += 1;
         let task = Task::builder(start)
             .run_after(Duration::from_secs(1))
-            .with_ctx(SqlContext::new().with_priority(1))
+            .with_ctx(PgContext::new().with_priority(1))
             .build();
-        Ok(task)
+        task
     })
     .take(10);
-    backend.send_all(&mut items).await.unwrap();
+    backend.push_all(&mut items).await.unwrap();
 
     async fn send_reminder(item: usize, wrk: WorkerContext) -> Result<(), BoxDynError> {
         Ok(())
@@ -55,10 +62,15 @@ async fn main() {
 ### `NOTIFY` listener example
 
 ```rust,no_run
+use std::time::Duration;
+
+use apalis::prelude::*;
+use apalis_postgres::*;
+use futures::stream::{self, StreamExt};
 
 #[tokio::main]
 async fn main() {
-    let pool = PostgresPool::connect(env!("DATABASE_URL")).await.unwrap();
+    let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
 
     let lazy_strategy = StrategyBuilder::new()
@@ -79,7 +91,7 @@ async fn main() {
                 start += 1;
                 Task::builder(serde_json::to_vec(&start).unwrap())
                     .run_after(Duration::from_secs(1))
-                    .with_ctx(SqlContext::new().with_priority(start))
+                    .with_ctx(PgContext::new().with_priority(start))
                     .build()
             })
             .take(20)
@@ -103,11 +115,18 @@ async fn main() {
 ### Workflow Example
 
 ```rust,no_run
+use std::time::Duration;
+
+use apalis::prelude::*;
+use apalis_postgres::*;
+use apalis_workflow::*;
+use futures::stream::{self, StreamExt};
+
 #[tokio::main]
 async fn main() {
-    let workflow = WorkFlow::new("odd-numbers-workflow")
-        .then(|a: usize| async move {
-            Ok::<_, WorkflowError>((0..=a).collect::<Vec<_>>())
+    let workflow = Workflow::new("odd-numbers-workflow")
+        .and_then(|a: usize| async move {
+            Ok::<_, BoxDynError>((0..=a).collect::<Vec<_>>())
         })
         .filter_map(|x| async move {
             if x % 2 != 0 { Some(x) } else { None }
@@ -119,16 +138,16 @@ async fn main() {
             if x % 5 != 0 { Some(x) } else { None }
         })
         .delay_for(Duration::from_millis(1000))
-        .then(|a: Vec<usize>| async move {
+        .and_then(|a: Vec<usize>| async move {
             println!("Sum: {}", a.iter().sum::<usize>());
-            Ok::<(), WorkflowError>(())
+            Ok::<(), BoxDynError>(())
         });
 
-    let pool = PostgresPool::connect(env!("DATABASE_URL")).await.unwrap();
+    let pool = PgPool::connect(env!("DATABASE_URL")).await.unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
-    let mut backend = PostgresStorage::new_in_queue(&pool, "test-workflow");
+    let mut backend = PostgresStorage::new_with_config(&pool, &Config::new("test-workflow"));
 
-    backend.push(100usize).await.unwrap();
+    backend.push_start(100usize).await.unwrap();
 
     let worker = WorkerBuilder::new("rango-tango")
         .backend(backend)
@@ -149,10 +168,16 @@ async fn main() {
 This shows an example of multiple backends using the same connection.
 This can improve performance if you have many types of jobs.
 
-```rs
+```rust,no_run
+use std::{collections::HashMap, time::Duration};
+
+use apalis::prelude::*;
+use apalis_postgres::{shared::SharedPostgresStorage, *};
+use futures::stream;
+
 #[tokio::main]
 async fn main() {
-    let pool = PgPool::connect(env!("DATABASE_URL"))
+    let pool = PgPool::connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
     let mut store = SharedPostgresStorage::new(pool);
@@ -169,7 +194,7 @@ async fn main() {
 
     async fn send_reminder<T, I>(
         _: T,
-        task_id: TaskId<I>,
+        _task_id: TaskId<I>,
         wrk: WorkerContext,
     ) -> Result<(), BoxDynError> {
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -189,7 +214,7 @@ async fn main() {
 
 ## Observability
 
-You can track your jobs using [apalis-board](https://github.com/apalis-dev/apalis-board).
+Track your jobs using [apalis-board](https://github.com/apalis-dev/apalis-board).
 ![Task](https://github.com/apalis-dev/apalis-board/raw/master/screenshots/task.png)
 
 ## License

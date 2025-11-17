@@ -8,19 +8,15 @@ use std::{
 };
 
 use crate::{
-    CompactType, Config, InsertEvent, PgTask, PostgresStorage,
-    ack::{LockTaskLayer, PgAck},
-    context::PgContext,
-    fetcher::PgPollFetcher,
-    queries::{
+    CompactType, Config, InsertEvent, PgContext, PgTask, PostgresStorage, ack::{LockTaskLayer, PgAck}, fetcher::PgPollFetcher, queries::{
         keep_alive::{initial_heartbeat, keep_alive_stream},
         reenqueue_orphaned::reenqueue_orphaned_stream,
-    },
+    }
 };
 use crate::{from_row::PgTaskRow, sink::PgSink};
 use apalis_core::{
     backend::{
-        Backend, TaskStream,
+        Backend, BackendExt, TaskStream,
         codec::{Codec, json::JsonCodec},
         shared::MakeShared,
     },
@@ -30,7 +26,7 @@ use apalis_core::{
 };
 use apalis_sql::from_row::TaskRow;
 use futures::{
-    FutureExt, SinkExt, Stream, StreamExt, TryStreamExt,
+    FutureExt, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt,
     channel::mpsc::{self, Receiver, Sender},
     future::{BoxFuture, Shared},
     lock::Mutex,
@@ -170,8 +166,6 @@ where
 {
     type Args = Args;
 
-    type Compact = CompactType;
-
     type IdType = Ulid;
 
     type Error = sqlx::Error;
@@ -179,8 +173,6 @@ where
     type Stream = TaskStream<PgTask<Args>, Self::Error>;
 
     type Beat = BoxStream<'static, Result<(), Self::Error>>;
-
-    type Codec = Decode;
 
     type Context = PgContext;
 
@@ -208,6 +200,39 @@ where
     }
 
     fn poll(self, worker: &WorkerContext) -> Self::Stream {
+        self.poll_shared(worker)
+            .map(|a| match a {
+                Ok(Some(task)) => Ok(Some(
+                    task.try_map(|t| Decode::decode(&t))
+                        .map_err(|e| sqlx::Error::Decode(e.into()))?,
+                )),
+                Ok(None) => Ok(None),
+                Err(e) => Err(e),
+            })
+            .boxed()
+    }
+}
+
+impl<Args, Decode> BackendExt for PostgresStorage<Args, CompactType, Decode, SharedFetcher>
+where
+    Args: Send + 'static + Unpin,
+    Decode: Codec<Args, Compact = CompactType> + 'static + Unpin + Send,
+    Decode::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Compact = CompactType;
+
+    type Codec = Decode;
+    type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
+    fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
+        self.poll_shared(worker).boxed()
+    }
+}
+
+impl<Args, Decode> PostgresStorage<Args, CompactType, Decode, SharedFetcher> {
+    fn poll_shared(
+        self,
+        worker: &WorkerContext,
+    ) -> impl Stream<Item = Result<Option<PgTask<CompactType>>, sqlx::Error>> + 'static {
         let pool = self.pool.clone();
         let worker_id = worker.name().to_owned();
         let register_worker = initial_heartbeat(
@@ -216,7 +241,7 @@ where
             worker.clone(),
             "SharedPostgresStorage",
         )
-        .map(|_| Ok(None));
+        .map_ok(|_| None);
         let register = stream::once(register_worker);
         let lazy_fetcher = self
             .fetcher
@@ -229,7 +254,7 @@ where
                     let mut tx = pool.begin().await?;
                     let res: Vec<_> = sqlx::query_file_as!(
                         PgTaskRow,
-                        "queries/task/lock_by_id.sql",
+                        "queries/task/queue_by_id.sql",
                         &ids,
                         &worker_id
                     )
@@ -237,7 +262,7 @@ where
                     .map(|r| {
                         let row: TaskRow = r?.try_into()?;
                         Ok(Some(
-                            row.try_into_task::<Decode, Args, Ulid>()
+                            row.try_into_task_compact()
                                 .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
                         ))
                     })
@@ -256,13 +281,12 @@ where
                 Err(e) => stream::once(ready(Err(e))).boxed(),
             })
             .boxed();
-
-        let eager_fetcher = StreamExt::boxed(PgPollFetcher::<Args, CompactType, Decode>::new(
+        let eager_fetcher = StreamExt::boxed(PgPollFetcher::<CompactType>::new(
             &self.pool,
             &self.config,
             worker,
         ));
-        register.chain(select(lazy_fetcher, eager_fetcher)).boxed()
+        register.chain(select(lazy_fetcher, eager_fetcher))
     }
 }
 

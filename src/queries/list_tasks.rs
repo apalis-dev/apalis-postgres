@@ -1,8 +1,8 @@
 use apalis_core::{
-    backend::{Backend, Filter, ListAllTasks, ListTasks, codec::Codec},
+    backend::{BackendExt, Filter, ListAllTasks, ListTasks, codec::Codec},
     task::{Task, status::Status},
 };
-use apalis_sql::{context::SqlContext, from_row::TaskRow};
+use apalis_sql::{context::SqlContext, from_row::{FromRowError, TaskRow}};
 use ulid::Ulid;
 
 use crate::{CompactType, PgTask, PostgresStorage, from_row::PgTaskRow};
@@ -10,7 +10,7 @@ use crate::{CompactType, PgTask, PostgresStorage, from_row::PgTaskRow};
 impl<Args, D, F> ListTasks<Args> for PostgresStorage<Args, CompactType, D, F>
 where
     PostgresStorage<Args, CompactType, D, F>:
-        Backend<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
     D: Codec<Args, Compact = CompactType>,
     D::Error: std::error::Error + Send + Sync + 'static,
     Args: 'static,
@@ -43,7 +43,11 @@ where
             .into_iter()
             .map(|r| {
                 let row: TaskRow = r.try_into()?;
-                row.try_into_task::<D, _, Ulid>()
+                row.try_into_task_compact()
+                    .and_then(|a| {
+                        a.try_map(|t| D::decode(&t))
+                            .map_err(|e| FromRowError::DecodeError(e.into()))
+                    })
                     .map_err(|e| sqlx::Error::Protocol(e.to_string()))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -55,7 +59,7 @@ where
 impl<Args, D, F> ListAllTasks for PostgresStorage<Args, CompactType, D, F>
 where
     PostgresStorage<Args, CompactType, D, F>:
-        Backend<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
 {
     fn list_all_tasks(
         &self,

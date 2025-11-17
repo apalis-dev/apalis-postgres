@@ -7,7 +7,6 @@ use std::{
 };
 
 use apalis_core::{
-    backend::codec::{Codec, json::JsonCodec},
     task::Task,
     timer::Delay,
     worker::context::WorkerContext,
@@ -19,16 +18,13 @@ use pin_project::pin_project;
 use sqlx::{PgPool, Pool, Postgres};
 use ulid::Ulid;
 
-use crate::{CompactType, PgTask, config::Config, context::PgContext, from_row::PgTaskRow};
+use crate::{CompactType, PgTask, config::Config, PgContext, from_row::PgTaskRow};
 
-async fn fetch_next<Args: 'static, D: Codec<Args, Compact = CompactType>>(
+async fn fetch_next(
     pool: PgPool,
     config: Config,
     worker: WorkerContext,
-) -> Result<Vec<Task<Args, PgContext, Ulid>>, sqlx::Error>
-where
-    D::Error: std::error::Error + Send + Sync + 'static,
-{
+) -> Result<Vec<Task<CompactType, PgContext, Ulid>>, sqlx::Error> {
     let job_type = config.queue().to_string();
     let buffer_size = config.buffer_size() as i32;
 
@@ -44,7 +40,7 @@ where
     .into_iter()
     .map(|r| {
         let row: TaskRow = r.try_into()?;
-        row.try_into_task::<D, Args, Ulid>()
+        row.try_into_task_compact()
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))
     })
     .collect()
@@ -64,24 +60,22 @@ pub struct PgFetcher<Args, Compact, Decode> {
 }
 
 #[pin_project]
-pub struct PgPollFetcher<Args, Compact = CompactType, Decode = JsonCodec<CompactType>> {
+pub struct PgPollFetcher<Compact> {
     pool: PgPool,
     config: Config,
     wrk: WorkerContext,
-    _marker: PhantomData<(Compact, Decode)>,
     #[pin]
-    state: StreamState<Args>,
+    state: StreamState<Compact>,
     current_backoff: Duration,
     last_fetch_time: Option<Instant>,
 }
 
-impl<Args, Compact, Decode> Clone for PgPollFetcher<Args, Compact, Decode> {
+impl<Compact> Clone for PgPollFetcher<Compact> {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
             config: self.config.clone(),
             wrk: self.wrk.clone(),
-            _marker: PhantomData,
             state: StreamState::Ready,
             current_backoff: self.current_backoff,
             last_fetch_time: self.last_fetch_time,
@@ -89,18 +83,13 @@ impl<Args, Compact, Decode> Clone for PgPollFetcher<Args, Compact, Decode> {
     }
 }
 
-impl<Args: 'static, Decode> PgPollFetcher<Args, CompactType, Decode> {
-    pub fn new(pool: &Pool<Postgres>, config: &Config, wrk: &WorkerContext) -> Self
-    where
-        Decode: Codec<Args, Compact = CompactType> + 'static,
-        Decode::Error: std::error::Error + Send + Sync + 'static,
-    {
+impl PgPollFetcher<CompactType> {
+    pub fn new(pool: &Pool<Postgres>, config: &Config, wrk: &WorkerContext) -> Self {
         let initial_backoff = Duration::from_secs(1);
         Self {
             pool: pool.clone(),
             config: config.clone(),
             wrk: wrk.clone(),
-            _marker: PhantomData,
             state: StreamState::Ready,
             current_backoff: initial_backoff,
             last_fetch_time: None,
@@ -108,14 +97,8 @@ impl<Args: 'static, Decode> PgPollFetcher<Args, CompactType, Decode> {
     }
 }
 
-impl<Args, Decode> Stream for PgPollFetcher<Args, CompactType, Decode>
-where
-    Decode::Error: std::error::Error + Send + Sync + 'static,
-    Args: Send + 'static + Unpin,
-    Decode: Codec<Args, Compact = CompactType> + 'static,
-    // Compact: Unpin + Send + 'static,
-{
-    type Item = Result<Option<PgTask<Args>>, sqlx::Error>;
+impl Stream for PgPollFetcher<CompactType> {
+    type Item = Result<Option<PgTask<CompactType>>, sqlx::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -123,11 +106,8 @@ where
         loop {
             match this.state {
                 StreamState::Ready => {
-                    let stream = fetch_next::<Args, Decode>(
-                        this.pool.clone(),
-                        this.config.clone(),
-                        this.wrk.clone(),
-                    );
+                    let stream =
+                        fetch_next(this.pool.clone(), this.config.clone(), this.wrk.clone());
                     this.state = StreamState::Fetch(stream.boxed());
                 }
                 StreamState::Delay(ref mut delay) => match Pin::new(delay).poll(cx) {
@@ -180,14 +160,14 @@ where
     }
 }
 
-impl<Args, Compact, Decode> PgPollFetcher<Args, Compact, Decode> {
+impl<Compact> PgPollFetcher<Compact> {
     fn next_backoff(&self, current: Duration) -> Duration {
         let doubled = current * 2;
         std::cmp::min(doubled, Duration::from_secs(60 * 5))
     }
 
     #[allow(unused)]
-    pub fn take_pending(&mut self) -> VecDeque<PgTask<Args>> {
+    pub fn take_pending(&mut self) -> VecDeque<PgTask<Compact>> {
         match &mut self.state {
             StreamState::Buffered(tasks) => std::mem::take(tasks),
             _ => VecDeque::new(),

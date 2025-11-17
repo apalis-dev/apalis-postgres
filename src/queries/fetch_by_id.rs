@@ -1,17 +1,17 @@
 use apalis_core::{
-    backend::{Backend, FetchById, codec::Codec},
+    backend::{BackendExt, FetchById, codec::Codec},
     task::task_id::TaskId,
 };
 
-use apalis_sql::from_row::TaskRow;
+use apalis_sql::from_row::{FromRowError, TaskRow};
 use ulid::Ulid;
 
-use crate::{CompactType, PgTask, PostgresStorage, context::PgContext, from_row::PgTaskRow};
+use crate::{CompactType, PgContext, PgTask, PostgresStorage, from_row::PgTaskRow};
 
 impl<Args, D, F> FetchById<Args> for PostgresStorage<Args, CompactType, D, F>
 where
     PostgresStorage<Args, CompactType, D, F>:
-        Backend<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
     D: Codec<Args, Compact = CompactType>,
     D::Error: std::error::Error + Send + Sync + 'static,
     Args: 'static,
@@ -28,7 +28,11 @@ where
                 .await?
                 .map(|r: PgTaskRow| {
                     let row: TaskRow = r.try_into()?;
-                    row.try_into_task::<D, _, Ulid>()
+                    row.try_into_task_compact()
+                        .and_then(|a| {
+                            a.try_map(|t| D::decode(&t))
+                                .map_err(|e| FromRowError::DecodeError(e.into()))
+                        })
                         .map_err(|e| sqlx::Error::Protocol(e.to_string()))
                 })
                 .transpose()?;

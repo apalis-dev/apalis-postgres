@@ -1,4 +1,4 @@
-use apalis_core::backend::{Backend, Metrics, Statistic};
+use apalis_core::backend::{BackendExt, Metrics, Statistic};
 use apalis_sql::context::SqlContext;
 use ulid::Ulid;
 
@@ -14,7 +14,7 @@ struct StatisticRow {
 impl<Args, D, F> Metrics for PostgresStorage<Args, CompactType, D, F>
 where
     PostgresStorage<Args, CompactType, D, F>:
-        Backend<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
 {
     fn global(&self) -> impl Future<Output = Result<Vec<Statistic>, Self::Error>> + Send {
         let pool = self.pool.clone();
