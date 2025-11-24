@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use apalis::prelude::*;
+use apalis::{layers::retry::RetryPolicy, prelude::*};
 use apalis_postgres::*;
 use futures::stream::{self, StreamExt};
 
@@ -24,12 +24,18 @@ async fn main() {
     .take(10);
     backend.push_all(&mut items).await.unwrap();
 
-    async fn send_reminder(_item: usize, _wrk: WorkerContext) -> Result<(), BoxDynError> {
+    async fn send_reminder(item: usize, wrk: WorkerContext) -> Result<(), BoxDynError> {
+        if item % 3 == 0 {
+            println!("Reminding about item: {} but failing", item);
+            return Err("Failed to send reminder".into());
+        }
+        println!("Reminding about item: {}", item);
         Ok(())
     }
 
     let worker = WorkerBuilder::new("worker-1")
         .backend(backend)
+        .retry(RetryPolicy::retries(1))
         .build(send_reminder);
     worker.run().await.unwrap();
 }
