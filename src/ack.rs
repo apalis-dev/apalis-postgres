@@ -151,7 +151,7 @@ where
         async move {
             lock_task(&pool, &task_id, &worker_id)
                 .await
-                .map_err(|e| AbortError::new(e))?;
+                .map_err(AbortError::new)?;
             fut.await.map_err(|e| e.into())
         }
         .boxed()
