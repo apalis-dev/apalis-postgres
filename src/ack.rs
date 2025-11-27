@@ -1,4 +1,5 @@
 use apalis_core::{
+    error::AbortError,
     error::BoxDynError,
     layers::{Layer, Service},
     task::{Parts, status::Status},
@@ -148,7 +149,9 @@ where
         };
         let fut = self.inner.call(req);
         async move {
-            lock_task(&pool, &task_id, &worker_id).await.unwrap();
+            lock_task(&pool, &task_id, &worker_id)
+                .await
+                .map_err(AbortError::new)?;
             fut.await.map_err(|e| e.into())
         }
         .boxed()
