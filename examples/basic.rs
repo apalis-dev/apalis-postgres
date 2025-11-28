@@ -7,9 +7,7 @@ use futures::stream::{self, StreamExt};
 #[tokio::main]
 async fn main() {
     let db = std::env::var("DATABASE_URL").unwrap();
-    let pool = PgPool::connect(&db)
-        .await
-        .unwrap();
+    let pool = PgPool::connect(&db).await.unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
     let mut backend = PostgresStorage::new(&pool);
 
