@@ -6,11 +6,25 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  DATABASE_URL: postgres://postgres:postgres@localhost/postgres
+  RUST_BACKTRACE: 1
 
 jobs:
   quick-check:
     name: Quick Check
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -67,6 +81,18 @@ jobs:
   test-if-needed:
     name: Test if Source Changed
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     needs: changes
     if: needs.changes.outputs.src == 'true'
     steps:
