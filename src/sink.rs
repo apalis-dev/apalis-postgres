@@ -10,7 +10,7 @@ use futures::{
     FutureExt, Sink, TryFutureExt,
     future::{BoxFuture, Shared},
 };
-use sqlx::{PgConnection, PgPool};
+use sqlx::{Executor, PgPool};
 use ulid::Ulid;
 
 use crate::{CompactType, PgTask, PostgresStorage, config::Config};
@@ -39,11 +39,14 @@ impl<Args, Compact, Codec> Clone for PgSink<Args, Compact, Codec> {
     }
 }
 
-pub fn push_tasks(
-    conn: &mut PgConnection,
+pub fn push_tasks<'a, E>(
+    conn: E,
     cfg: Config,
     buffer: Vec<PgTask<CompactType>>,
-) -> impl futures::Future<Output = Result<(), sqlx::Error>> + Send {
+) -> impl futures::Future<Output = Result<(), sqlx::Error>> + Send + 'a
+where
+    E: Executor<'a, Database = sqlx::Postgres> + Send + 'a,
+{
     let job_type = cfg.queue().to_string();
     // Build the multi-row INSERT with UNNEST
     let mut ids = Vec::new();
@@ -77,7 +80,7 @@ pub fn push_tasks(
         &priorities,
         &metadata
     )
-    .execute(&mut *conn)
+    .execute(conn)
     .map_ok(|_| ())
     .boxed()
 }
@@ -126,10 +129,11 @@ where
             let buffer = std::mem::take(&mut this.sink.buffer);
             let pool = this.sink.pool.clone();
             let fut = async move {
-                let mut conn = pool.acquire().map_err(Arc::new).await?;
-                push_tasks(&mut conn, config, buffer)
+                let mut conn = pool.begin().map_err(Arc::new).await?;
+                push_tasks(&mut *conn, config, buffer)
                     .map_err(Arc::new)
                     .await?;
+                conn.commit().map_err(Arc::new).await?;
                 Ok(())
             };
             this.sink.flush_future = Some(fut.boxed().shared());

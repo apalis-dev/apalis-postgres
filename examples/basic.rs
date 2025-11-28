@@ -26,7 +26,7 @@ async fn main() {
     .take(10);
     backend.push_all(&mut items).await.unwrap();
 
-    async fn send_reminder(item: usize, wrk: WorkerContext) -> Result<(), BoxDynError> {
+    async fn send_reminder(item: usize, _wrk: WorkerContext) -> Result<(), BoxDynError> {
         if item % 3 == 0 {
             println!("Reminding about item: {} but failing", item);
             return Err("Failed to send reminder".into());
