@@ -5,12 +5,12 @@ use std::{
 };
 
 use apalis_core::backend::codec::json::JsonCodec;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use futures::{
     FutureExt, Sink, TryFutureExt,
     future::{BoxFuture, Shared},
 };
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use ulid::Ulid;
 
 use crate::{CompactType, PgTask, PostgresStorage, config::Config};
@@ -39,11 +39,11 @@ impl<Args, Compact, Codec> Clone for PgSink<Args, Compact, Codec> {
     }
 }
 
-pub async fn push_tasks(
-    pool: PgPool,
+pub fn push_tasks(
+    conn: &mut PgConnection,
     cfg: Config,
     buffer: Vec<PgTask<CompactType>>,
-) -> Result<(), sqlx::Error> {
+) -> impl futures::Future<Output = Result<(), sqlx::Error>> + Send {
     let job_type = cfg.queue().to_string();
     // Build the multi-row INSERT with UNNEST
     let mut ids = Vec::new();
@@ -61,10 +61,7 @@ pub async fn push_tasks(
                 .unwrap_or(Ulid::new().to_string()),
         );
         job_data.push(task.args);
-        run_ats.push(
-            DateTime::from_timestamp(task.parts.run_at as i64, 0)
-                .ok_or(sqlx::Error::ColumnNotFound("run_at".to_owned()))?,
-        );
+        run_ats.push(DateTime::from_timestamp(task.parts.run_at as i64, 0).unwrap_or(Utc::now()));
         priorities.push(task.parts.ctx.priority());
         max_attempts_vec.push(task.parts.ctx.max_attempts());
         metadata.push(serde_json::Value::Object(task.parts.ctx.meta().clone()));
@@ -80,9 +77,9 @@ pub async fn push_tasks(
         &priorities,
         &metadata
     )
-    .execute(&pool)
-    .await?;
-    Ok(())
+    .execute(&mut *conn)
+    .map_ok(|_| ())
+    .boxed()
 }
 
 impl<Args, Compact, Codec> PgSink<Args, Compact, Codec> {
@@ -125,11 +122,17 @@ where
 
         // Create the future only if we don't have one and there's work to do
         if this.sink.flush_future.is_none() && !this.sink.buffer.is_empty() {
-            let pool = this.pool.clone();
             let config = this.config.clone();
             let buffer = std::mem::take(&mut this.sink.buffer);
-            let sink_fut = push_tasks(pool, config, buffer).map_err(Arc::new);
-            this.sink.flush_future = Some(sink_fut.boxed().shared());
+            let pool = this.sink.pool.clone();
+            let fut = async move {
+                let mut conn = pool.acquire().map_err(Arc::new).await?;
+                push_tasks(&mut conn, config, buffer)
+                    .map_err(Arc::new)
+                    .await?;
+                Ok(())
+            };
+            this.sink.flush_future = Some(fut.boxed().shared());
         }
 
         // Poll the existing future
