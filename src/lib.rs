@@ -80,6 +80,8 @@ pub struct PgNotify {
     ListWorkers => supported("List all workers registered with the backend", false),
     ListTasks => supported("List all tasks in the backend", false),
 }]
+///
+/// [`SharedPostgresStorage`]: crate::shared::SharedPostgresStorage
 #[pin_project::pin_project]
 pub struct PostgresStorage<
     Args,
