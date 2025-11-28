@@ -12,8 +12,9 @@ env:
   DATABASE_URL: postgres://postgres:postgres@localhost/postgres
 
 jobs:
-  defaults:
-    runs-on: ubuntu-latest
+  test:
+    name: Test Suite
+    runs-on: ${{ matrix.os }}
     services:
       postgres:
         image: postgres:17
@@ -26,9 +27,6 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
-  test:
-    name: Test Suite
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
