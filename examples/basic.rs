@@ -6,12 +6,14 @@ use futures::stream::{self, StreamExt};
 
 #[tokio::main]
 async fn main() {
-    let pool = PgPool::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = std::env::var("DATABASE_URL").unwrap();
+    let pool = PgPool::connect(&db)
         .await
         .unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
     let mut backend = PostgresStorage::new(&pool);
 
+    // Push some tasks as a stream
     let mut start = 0usize;
     let mut items = stream::repeat_with(move || {
         start += 1;
