@@ -6,12 +6,12 @@ use futures::stream::{self, StreamExt};
 
 #[tokio::main]
 async fn main() {
-    let pool = PgPool::connect(&std::env::var("DATABASE_URL").unwrap())
-        .await
-        .unwrap();
+    let db = std::env::var("DATABASE_URL").unwrap();
+    let pool = PgPool::connect(&db).await.unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
     let mut backend = PostgresStorage::new(&pool);
 
+    // Push some tasks as a stream
     let mut start = 0usize;
     let mut items = stream::repeat_with(move || {
         start += 1;
@@ -24,7 +24,7 @@ async fn main() {
     .take(10);
     backend.push_all(&mut items).await.unwrap();
 
-    async fn send_reminder(item: usize, wrk: WorkerContext) -> Result<(), BoxDynError> {
+    async fn send_reminder(item: usize, _wrk: WorkerContext) -> Result<(), BoxDynError> {
         if item % 3 == 0 {
             println!("Reminding about item: {} but failing", item);
             return Err("Failed to send reminder".into());

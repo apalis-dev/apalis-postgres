@@ -35,7 +35,7 @@ async fn main() {
             .take(20)
             .collect::<Vec<_>>()
             .await;
-            apalis_postgres::sink::push_tasks(pool, config, items)
+            apalis_postgres::sink::push_tasks(&pool, config, items)
                 .await
                 .unwrap();
         }
