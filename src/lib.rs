@@ -467,13 +467,9 @@ mod tests {
     #[tokio::test]
     async fn basic_worker() {
         use apalis_core::backend::TaskSink;
-        let pool = PgPool::connect(
-            env::var("DATABASE_URL")
-                .unwrap_or("postgres://postgres:postgres@localhost/apalis_dev".to_owned())
-                .as_str(),
-        )
-        .await
-        .unwrap();
+        let pool = PgPool::connect(env::var("DATABASE_URL").unwrap().as_str())
+            .await
+            .unwrap();
         let mut backend = PostgresStorage::new(&pool);
 
         let mut items = stream::repeat_with(HashMap::default).take(1);
@@ -497,13 +493,9 @@ mod tests {
     #[tokio::test]
     async fn notify_worker() {
         use apalis_core::backend::TaskSink;
-        let pool = PgPool::connect(
-            env::var("DATABASE_URL")
-                .unwrap_or("postgres://postgres:postgres@localhost/apalis_dev".to_owned())
-                .as_str(),
-        )
-        .await
-        .unwrap();
+        let pool = PgPool::connect(env::var("DATABASE_URL").unwrap().as_str())
+            .await
+            .unwrap();
         let config = Config::new("test").with_poll_interval(
             StrategyBuilder::new()
                 .apply(IntervalStrategy::new(Duration::from_secs(6)))
@@ -631,13 +623,9 @@ mod tests {
                 worker.stop()
             });
 
-        let pool = PgPool::connect(
-            env::var("DATABASE_URL")
-                .unwrap_or("postgres://postgres:postgres@localhost/apalis_dev".to_owned())
-                .as_str(),
-        )
-        .await
-        .unwrap();
+        let pool = PgPool::connect(env::var("DATABASE_URL").unwrap().as_str())
+            .await
+            .unwrap();
         let config = Config::new("test").with_poll_interval(
             StrategyBuilder::new()
                 .apply(IntervalStrategy::new(Duration::from_secs(1)))

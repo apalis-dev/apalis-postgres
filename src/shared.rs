@@ -303,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn basic_worker() {
-        let pool = PgPool::connect("postgres://postgres:postgres@localhost/apalis_dev")
+        let pool = PgPool::connect(std::env::var("DATABASE_URL").unwrap().as_str())
             .await
             .unwrap();
         let mut store = SharedPostgresStorage::new(pool);
