@@ -61,7 +61,7 @@ jobs:
         run: cargo vet --locked
 
   cargo-deny:
-    name: Cargo Deny
+    name: cargo-deny
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
