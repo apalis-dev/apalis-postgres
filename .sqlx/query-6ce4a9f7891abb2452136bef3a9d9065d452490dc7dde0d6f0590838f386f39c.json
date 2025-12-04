@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE apalis.jobs\nSET \n    status = 'Running',\n    lock_at = now(),\n    lock_by = $2\nWHERE \n    (status = 'Pending' OR status = 'Queued' OR (status = 'Failed' AND attempts < max_attempts))\n    AND run_at < now()\n    AND id = ANY($1)\nRETURNING *;\n",
+  "query": "UPDATE\n    apalis.jobs\nSET\n    status = 'Running',\n    lock_at = now(),\n    lock_by = $2\nWHERE\n    (\n        status = 'Pending'\n        OR status = 'Queued'\n        OR (\n            status = 'Failed'\n            AND attempts < max_attempts\n        )\n    )\n    AND run_at < now()\n    AND id = ANY($1) RETURNING *;\n",
   "describe": {
     "columns": [
       {
@@ -91,5 +91,5 @@
       true
     ]
   },
-  "hash": "5fd3913bd5d12b5571141da1d5fc6ddf0bd6d1af82bccf97b2b39827daf0e4ca"
+  "hash": "6ce4a9f7891abb2452136bef3a9d9065d452490dc7dde0d6f0590838f386f39c"
 }
