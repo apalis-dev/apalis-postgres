@@ -89,15 +89,17 @@ async fn main() {
             let mut start = 0;
             let items = stream::repeat_with(move || {
                 start += 1;
+                // Construct compact task
                 Task::builder(serde_json::to_vec(&start).unwrap())
-                    .run_after(Duration::from_secs(1))
                     .with_ctx(PgContext::new().with_priority(start))
                     .build()
             })
             .take(20)
             .collect::<Vec<_>>()
             .await;
-            apalis_postgres::sink::push_tasks(pool, config, items).await.unwrap();
+            // You can still use backend.push
+            // This example shows how to do it with just a pool
+            apalis_postgres::sink::push_tasks(&pool, config, items).await.unwrap();
         }
     });
 
