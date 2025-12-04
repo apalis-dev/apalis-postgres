@@ -47,6 +47,18 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1.16.2
+
+      - name: Install sqlx-cli
+        run: cargo binstall sqlx-cli --features postgres --locked --force
+
+      - name: Set up database
+        run: sqlx database create
+
+      - name: Run migrations
+        run: sqlx migrate run
+
       - name: Generate code coverage
         run: cargo tarpaulin --all-features --verbose --workspace --timeout 120 --out xml --test-threads 1
 

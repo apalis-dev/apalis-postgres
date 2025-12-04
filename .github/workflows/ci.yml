@@ -55,6 +55,18 @@ jobs:
             ${{ runner.os }}-cargo-${{ matrix.rust }}-
             ${{ runner.os }}-cargo-
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1.16.2
+
+      - name: Install sqlx-cli
+        run: cargo binstall sqlx-cli --features postgres --locked --force
+
+      - name: Set up database
+        run: sqlx database create
+
+      - name: Run migrations
+        run: sqlx migrate run
+
       - name: Run cargo test with all features
         run: cargo test --all-features --verbose -- --test-threads=1
 
