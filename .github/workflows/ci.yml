@@ -59,7 +59,7 @@ jobs:
         uses: cargo-bins/cargo-binstall@v1.16.2
 
       - name: Install sqlx-cli
-        run: cargo binstall sqlx-cli --features postgres --locked --force
+        run: cargo binstall sqlx-cli --locked --force
 
       - name: Set up database
         run: sqlx database create
