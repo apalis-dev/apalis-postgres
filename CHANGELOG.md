@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+
+## [1.0.0-beta.3] - 2025-12-06
+
 - fix: correct allowSelfAssign param as bool (#25) 
 
 ## [0.7.1] - 2025-03-17
