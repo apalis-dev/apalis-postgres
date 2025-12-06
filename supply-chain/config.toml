@@ -24,7 +24,7 @@ version = "1.0.0-beta.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-postgres]]
-version = "1.0.0-beta.2"
+version = "1.0.0-beta.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-sql]]
