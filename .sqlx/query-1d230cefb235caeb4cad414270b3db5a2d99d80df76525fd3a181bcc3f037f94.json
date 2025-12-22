@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    *\nFROM\n    apalis.jobs\nWHERE\n    status = $1\n    AND job_type = $2\nORDER BY\n    done_at DESC,\n    run_at DESC\nLIMIT\n    $3 OFFSET $4\n",
+  "query": "SELECT\n    job,\n    id,\n    job_type,\n    status,\n    attempts,\n    max_attempts,\n    run_at as \"run_at: chrono::DateTime<chrono::Utc>\",\n    last_result,\n    lock_at as \"lock_at: chrono::DateTime<chrono::Utc>\",\n    lock_by,\n    done_at as \"done_at: chrono::DateTime<chrono::Utc>\",\n    priority,\n    metadata\nFROM\n    apalis.jobs\nWHERE\n    id = $1\nLIMIT\n    1;\n",
   "describe": {
     "columns": [
       {
@@ -35,7 +35,7 @@
       },
       {
         "ordinal": 6,
-        "name": "run_at",
+        "name": "run_at: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
       },
       {
@@ -45,7 +45,7 @@
       },
       {
         "ordinal": 8,
-        "name": "lock_at",
+        "name": "lock_at: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
       },
       {
@@ -55,7 +55,7 @@
       },
       {
         "ordinal": 10,
-        "name": "done_at",
+        "name": "done_at: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
       },
       {
@@ -71,10 +71,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Int8",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -93,5 +90,5 @@
       true
     ]
   },
-  "hash": "aec15451aa407010d95e6014b0e6b4a361a6cc85c26c56ea82cdd2c37a123dac"
+  "hash": "1d230cefb235caeb4cad414270b3db5a2d99d80df76525fd3a181bcc3f037f94"
 }

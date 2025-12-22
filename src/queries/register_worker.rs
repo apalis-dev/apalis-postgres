@@ -15,7 +15,7 @@ pub async fn register(
         worker_type,
         backend_type,
         worker.get_service(),
-        last_seen
+        last_seen as chrono::DateTime<chrono::Utc>,
     )
     .execute(&pool)
     .await?;
