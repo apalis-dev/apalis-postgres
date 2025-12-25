@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- bump: introducing rc.1 (#45)
+- fix: Add primary keys for database tables (#45)
+
 ## [1.0.0-beta.3] - 2025-12-06
 
 - fix: correct allowSelfAssign param as bool (#25) 
