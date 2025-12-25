@@ -14,7 +14,7 @@ use pin_project::pin_project;
 use sqlx::{PgPool, Pool, Postgres};
 use ulid::Ulid;
 
-use crate::{CompactType, PgContext, PgTask, config::Config, from_row::PgTaskRow};
+use crate::{CompactType, Config, PgContext, PgTask, from_row::PgTaskRow};
 
 async fn fetch_next(
     pool: PgPool,

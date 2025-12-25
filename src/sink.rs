@@ -1,19 +1,19 @@
-use std::{
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
-
-use apalis_core::backend::codec::json::JsonCodec;
+use apalis_codec::json::JsonCodec;
+use apalis_sql::config::Config;
 use chrono::{DateTime, Utc};
 use futures::{
     FutureExt, Sink, TryFutureExt,
     future::{BoxFuture, Shared},
 };
 use sqlx::{Executor, PgPool};
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use ulid::Ulid;
 
-use crate::{CompactType, PgTask, PostgresStorage, config::Config};
+use crate::{CompactType, PgTask, PostgresStorage};
 
 type FlushFuture = BoxFuture<'static, Result<(), Arc<sqlx::Error>>>;
 

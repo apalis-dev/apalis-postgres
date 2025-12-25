@@ -2,18 +2,15 @@ use apalis_core::{
     backend::{BackendExt, Filter, ListAllTasks, ListTasks, codec::Codec},
     task::{Task, status::Status},
 };
-use apalis_sql::{
-    context::SqlContext,
-    from_row::{FromRowError, TaskRow},
-};
+use apalis_sql::from_row::{FromRowError, TaskRow};
 use ulid::Ulid;
 
-use crate::{CompactType, PgTask, PostgresStorage, from_row::PgTaskRow};
+use crate::{CompactType, PgContext, PgTask, PostgresStorage, from_row::PgTaskRow};
 
 impl<Args, D, F> ListTasks<Args> for PostgresStorage<Args, CompactType, D, F>
 where
     PostgresStorage<Args, CompactType, D, F>:
-        BackendExt<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
     D: Codec<Args, Compact = CompactType>,
     D::Error: std::error::Error + Send + Sync + 'static,
     Args: 'static,
@@ -62,7 +59,7 @@ where
 impl<Args, D, F> ListAllTasks for PostgresStorage<Args, CompactType, D, F>
 where
     PostgresStorage<Args, CompactType, D, F>:
-        BackendExt<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
 {
     fn list_all_tasks(
         &self,

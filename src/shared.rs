@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    CompactType, Config, InsertEvent, PgContext, PgTask, PostgresStorage,
+    CompactType, Config, InsertEvent, PgContext, PgTask, PgTaskId, PostgresStorage,
     ack::{LockTaskLayer, PgAck},
     fetcher::PgPollFetcher,
     queries::{
@@ -17,14 +17,10 @@ use crate::{
     },
 };
 use crate::{from_row::PgTaskRow, sink::PgSink};
+use apalis_codec::json::JsonCodec;
 use apalis_core::{
-    backend::{
-        Backend, BackendExt, TaskStream,
-        codec::{Codec, json::JsonCodec},
-        shared::MakeShared,
-    },
+    backend::{Backend, BackendExt, TaskStream, codec::Codec, queue::Queue, shared::MakeShared},
     layers::Stack,
-    task::task_id::TaskId,
     worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
 use apalis_sql::from_row::TaskRow;
@@ -40,14 +36,14 @@ use ulid::Ulid;
 
 pub struct SharedPostgresStorage<Compact = CompactType, Codec = JsonCodec<CompactType>> {
     pool: PgPool,
-    registry: Arc<Mutex<HashMap<String, Sender<TaskId>>>>,
+    registry: Arc<Mutex<HashMap<String, Sender<PgTaskId>>>>,
     drive: Shared<BoxFuture<'static, ()>>,
     _marker: PhantomData<(Compact, Codec)>,
 }
 
 impl SharedPostgresStorage {
     pub fn new(pool: PgPool) -> Self {
-        let registry: Arc<Mutex<HashMap<String, Sender<TaskId>>>> =
+        let registry: Arc<Mutex<HashMap<String, Sender<PgTaskId>>>> =
             Arc::new(Mutex::new(HashMap::default()));
         let p = pool.clone();
         let instances = registry.clone();
@@ -140,12 +136,11 @@ impl<Args, Compact, Codec> MakeShared<Args> for SharedPostgresStorage<Compact, C
 #[derive(Clone, Debug)]
 pub struct SharedFetcher {
     poller: Shared<BoxFuture<'static, ()>>,
-    receiver: Arc<Mutex<Receiver<TaskId>>>,
+    receiver: Arc<Mutex<Receiver<PgTaskId>>>,
 }
 
 impl Stream for SharedFetcher {
-    type Item = TaskId;
-
+    type Item = PgTaskId;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         // Keep the poller alive by polling it, but ignoring the output
@@ -226,6 +221,11 @@ where
 
     type Codec = Decode;
     type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
+
+    fn get_queue(&self) -> Queue {
+        self.config.queue().clone()
+    }
+
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll_shared(worker).boxed()
     }

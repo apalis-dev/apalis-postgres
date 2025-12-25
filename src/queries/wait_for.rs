@@ -4,12 +4,11 @@ use apalis_core::{
     backend::{BackendExt, TaskResult, WaitForCompletion},
     task::{status::Status, task_id::TaskId},
 };
-use apalis_sql::context::SqlContext;
 use futures::{StreamExt, stream::BoxStream};
 use serde::de::DeserializeOwned;
 use ulid::Ulid;
 
-use crate::{CompactType, PostgresStorage};
+use crate::{CompactType, PgContext, PostgresStorage};
 
 #[derive(Debug)]
 pub struct TaskResultRow {
@@ -22,10 +21,10 @@ impl<O: 'static + Send, Args, F, Decode> WaitForCompletion<O>
     for PostgresStorage<Args, CompactType, Decode, F>
 where
     PostgresStorage<Args, CompactType, Decode, F>:
-        BackendExt<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
     Result<O, String>: DeserializeOwned,
 {
-    type ResultStream = BoxStream<'static, Result<TaskResult<O>, Self::Error>>;
+    type ResultStream = BoxStream<'static, Result<TaskResult<O, Ulid>, Self::Error>>;
     fn wait_for(
         &self,
         task_ids: impl IntoIterator<Item = TaskId<Self::IdType>>,
@@ -81,7 +80,7 @@ where
     fn check_status(
         &self,
         task_ids: impl IntoIterator<Item = TaskId<Self::IdType>> + Send,
-    ) -> impl Future<Output = Result<Vec<TaskResult<O>>, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<Vec<TaskResult<O, Ulid>>, Self::Error>> + Send {
         let pool = self.pool.clone();
         let ids: Vec<String> = task_ids.into_iter().map(|id| id.to_string()).collect();
 

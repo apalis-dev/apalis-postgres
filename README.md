@@ -182,6 +182,7 @@ async fn main() {
     let pool = PgPool::connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
+    PostgresStorage::setup(&pool).await.unwrap();
     let mut store = SharedPostgresStorage::new(pool);
 
     let mut map_store = store.make_shared().unwrap();
@@ -217,7 +218,7 @@ async fn main() {
 ## Observability
 
 Track your jobs using [apalis-board](https://github.com/apalis-dev/apalis-board).
-![Task](https://github.com/apalis-dev/apalis-board/raw/master/screenshots/task.png)
+![Task](https://github.com/apalis-dev/apalis-board/raw/main/screenshots/task.png)
 
 ## License
 

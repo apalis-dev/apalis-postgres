@@ -1,12 +1,9 @@
-use apalis_core::{
-    backend::{BackendExt, FetchById, codec::Codec},
-    task::task_id::TaskId,
-};
+use apalis_core::backend::{BackendExt, FetchById, codec::Codec};
 
 use apalis_sql::from_row::{FromRowError, TaskRow};
 use ulid::Ulid;
 
-use crate::{CompactType, PgContext, PgTask, PostgresStorage, from_row::PgTaskRow};
+use crate::{CompactType, PgContext, PgTask, PgTaskId, PostgresStorage, from_row::PgTaskRow};
 
 impl<Args, D, F> FetchById<Args> for PostgresStorage<Args, CompactType, D, F>
 where
@@ -18,7 +15,7 @@ where
 {
     fn fetch_by_id(
         &mut self,
-        id: &TaskId<Ulid>,
+        id: &PgTaskId,
     ) -> impl Future<Output = Result<Option<PgTask<Args>>, Self::Error>> + Send {
         let pool = self.pool.clone();
         let id = id.to_string();

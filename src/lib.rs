@@ -4,17 +4,15 @@
 //! [`SharedPostgresStorage`]: crate::shared::SharedPostgresStorage
 use std::{fmt::Debug, marker::PhantomData};
 
+use apalis_codec::json::JsonCodec;
 use apalis_core::{
-    backend::{
-        Backend, BackendExt, TaskStream,
-        codec::{Codec, json::JsonCodec},
-    },
+    backend::{Backend, BackendExt, TaskStream, codec::Codec, queue::Queue},
     features_table,
     layers::Stack,
     task::{Task, task_id::TaskId},
     worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
-use apalis_sql::from_row::TaskRow;
+pub use apalis_sql::{config::Config, from_row::TaskRow};
 use futures::{
     StreamExt, TryFutureExt, TryStreamExt,
     future::ready,
@@ -35,25 +33,19 @@ pub use crate::{
 };
 
 mod ack;
-mod config;
 mod fetcher;
 mod from_row;
 
-pub type PgContext = apalis_sql::context::SqlContext;
-pub use config::Config;
-
+pub type PgContext = apalis_sql::context::SqlContext<PgPool>;
 mod queries;
 pub mod shared;
 pub mod sink;
 
 pub type PgTask<Args> = Task<Args, PgContext, Ulid>;
 
-pub type CompactType = Vec<u8>;
+pub type PgTaskId = TaskId<Ulid>;
 
-#[derive(Debug, Clone, Default)]
-pub struct PgNotify {
-    _private: PhantomData<()>,
-}
+pub type CompactType = Vec<u8>;
 
 #[doc = features_table! {
     setup = r#"
@@ -96,6 +88,12 @@ pub struct PostgresStorage<
     fetcher: Fetcher,
     #[pin]
     sink: PgSink<Args, Compact, Codec>,
+}
+
+/// A fetcher that does nothing, used for notify-based storage
+#[derive(Debug, Clone, Default)]
+pub struct PgNotify {
+    _private: PhantomData<()>,
 }
 
 impl<Args, Compact, Codec, Fetcher: Clone> Clone
@@ -252,6 +250,10 @@ where
 
     type Codec = Decode;
     type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
+
+    fn get_queue(&self) -> Queue {
+        self.config.queue().clone()
+    }
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll_basic(worker).boxed()
     }
@@ -345,6 +347,11 @@ where
 
     type Codec = Decode;
     type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
+
+    fn get_queue(&self) -> Queue {
+        self.config.queue().clone()
+    }
+
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll_with_notify(worker).boxed()
     }
@@ -440,7 +447,7 @@ impl<Args, Decode> PostgresStorage<Args, CompactType, Decode, PgNotify> {
 #[derive(Debug, Deserialize)]
 pub struct InsertEvent {
     job_type: String,
-    id: TaskId,
+    id: PgTaskId,
 }
 
 #[cfg(test)]

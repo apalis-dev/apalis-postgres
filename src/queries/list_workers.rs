@@ -1,5 +1,4 @@
 use apalis_core::backend::{BackendExt, ListWorkers, RunningWorker};
-use apalis_sql::context::SqlContext;
 use chrono::{DateTime, Utc};
 use futures::TryFutureExt;
 use ulid::Ulid;
@@ -14,12 +13,12 @@ pub struct WorkerRow {
     pub started_at: Option<DateTime<Utc>>,
 }
 
-use crate::{CompactType, PostgresStorage};
+use crate::{CompactType, PgContext, PostgresStorage};
 
 impl<Args: Sync, D, F> ListWorkers for PostgresStorage<Args, CompactType, D, F>
 where
     PostgresStorage<Args, CompactType, D, F>:
-        BackendExt<Context = SqlContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
 {
     fn list_workers(
         &self,
