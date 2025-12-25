@@ -12,8 +12,10 @@ async fn main() {
         .filter_map(|x| async move { if x % 3 != 0 { Some(x) } else { None } })
         .filter_map(|x| async move { if x % 5 != 0 { Some(x) } else { None } })
         .delay_for(Duration::from_millis(1000))
-        .and_then(|a: Vec<usize>| async move {
+        .and_then(|a: Vec<usize>, ctx: WorkerContext, task_id: PgTaskId| async move {
             println!("Sum: {}", a.iter().sum::<usize>());
+            ctx.stop().unwrap();
+            println!("Completed Task ID: {}", task_id);
             Ok::<(), BoxDynError>(())
         });
 

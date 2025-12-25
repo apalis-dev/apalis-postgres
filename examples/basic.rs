@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use apalis::{layers::retry::RetryPolicy, prelude::*};
 use apalis_postgres::*;
+use apalis_sql::ext::TaskBuilderExt;
 use futures::stream::{self, StreamExt};
 
 #[tokio::main]
@@ -17,7 +18,8 @@ async fn main() {
         start += 1;
         let task = Task::builder(start)
             .run_after(Duration::from_secs(1))
-            .with_ctx(PgContext::new().with_priority(1))
+            .priority(1)
+            .max_attempts(5)
             .build();
         task
     })
@@ -25,7 +27,7 @@ async fn main() {
     backend.push_all(&mut items).await.unwrap();
 
     async fn send_reminder(item: usize, _wrk: WorkerContext) -> Result<(), BoxDynError> {
-        if item % 3 == 0 {
+        if item.is_multiple_of(3) {
             println!("Reminding about item: {} but failing", item);
             return Err("Failed to send reminder".into());
         }

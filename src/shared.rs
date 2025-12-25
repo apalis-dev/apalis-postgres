@@ -318,9 +318,9 @@ mod tests {
             .unwrap();
         int_store.push(99).await.unwrap();
 
-        async fn send_reminder<T, I>(
+        async fn send_reminder<T>(
             _: T,
-            _task_id: TaskId<I>,
+            _task_id: PgTaskId,
             wrk: WorkerContext,
         ) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(2)).await;
