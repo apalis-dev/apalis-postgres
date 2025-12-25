@@ -8,6 +8,8 @@ use std::{
 
 use apalis_core::{task::Task, timer::Delay, worker::context::WorkerContext};
 use apalis_sql::from_row::TaskRow;
+
+use crate::timestamp::PgDateTime;
 use futures::{Future, FutureExt, future::BoxFuture, stream::Stream};
 use pin_project::pin_project;
 
@@ -35,7 +37,7 @@ async fn fetch_next(
     .await?
     .into_iter()
     .map(|r| {
-        let row: TaskRow = r.try_into()?;
+        let row: TaskRow<PgDateTime> = r.try_into()?;
         row.try_into_task_compact()
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))
     })

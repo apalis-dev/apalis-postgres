@@ -1,6 +1,5 @@
 use apalis_codec::json::JsonCodec;
 use apalis_sql::config::Config;
-use chrono::{DateTime, Utc};
 use futures::{
     FutureExt, Sink, TryFutureExt,
     future::{BoxFuture, Shared},
@@ -13,7 +12,7 @@ use std::{
 };
 use ulid::Ulid;
 
-use crate::{CompactType, PgTask, PostgresStorage};
+use crate::{CompactType, PgTask, PostgresStorage, timestamp_from_unix};
 
 type FlushFuture = BoxFuture<'static, Result<(), Arc<sqlx::Error>>>;
 
@@ -64,7 +63,7 @@ where
                 .unwrap_or(Ulid::new().to_string()),
         );
         job_data.push(task.args);
-        run_ats.push(DateTime::from_timestamp(task.parts.run_at as i64, 0).unwrap_or(Utc::now()));
+        run_ats.push(timestamp_from_unix(task.parts.run_at as i64));
         priorities.push(task.parts.ctx.priority());
         max_attempts_vec.push(task.parts.ctx.max_attempts());
         metadata.push(serde_json::Value::Object(task.parts.ctx.meta().clone()));

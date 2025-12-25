@@ -19,7 +19,7 @@ use crate::{
 use crate::{from_row::PgTaskRow, sink::PgSink};
 use apalis_codec::json::JsonCodec;
 use apalis_core::{
-    backend::{Backend, BackendExt, TaskStream, codec::Codec, queue::Queue, shared::MakeShared},
+    backend::{Backend, BackendExt, TaskStream, codec::Codec, shared::MakeShared},
     layers::Stack,
     worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
@@ -222,10 +222,6 @@ where
     type Codec = Decode;
     type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
 
-    fn get_queue(&self) -> Queue {
-        self.config.queue().clone()
-    }
-
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll_shared(worker).boxed()
     }
@@ -263,7 +259,7 @@ impl<Args, Decode> PostgresStorage<Args, CompactType, Decode, SharedFetcher> {
                     )
                     .fetch(&mut *tx)
                     .map(|r| {
-                        let row: TaskRow = r?.try_into()?;
+                        let row: TaskRow<crate::PgDateTime> = r?.try_into()?;
                         Ok(Some(
                             row.try_into_task_compact()
                                 .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,

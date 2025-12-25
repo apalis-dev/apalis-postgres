@@ -42,7 +42,7 @@ where
             .await?
             .into_iter()
             .map(|r| {
-                let row: TaskRow = r.try_into()?;
+                let row: TaskRow<crate::PgDateTime> = r.try_into()?;
                 row.try_into_task_compact()
                     .and_then(|a| {
                         a.try_map(|t| D::decode(&t))
@@ -87,7 +87,7 @@ where
             .await?
             .into_iter()
             .map(|r| {
-                let row: TaskRow = r.try_into()?;
+                let row: TaskRow<crate::PgDateTime> = r.try_into()?;
                 row.try_into_task_compact()
                     .map_err(|e| sqlx::Error::Protocol(e.to_string()))
             })

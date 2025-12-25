@@ -1,12 +1,13 @@
 use apalis_core::worker::context::WorkerContext;
-use chrono::{DateTime, Utc};
 use sqlx::PgPool;
+
+use crate::RawDateTime;
 
 pub async fn register(
     pool: PgPool,
     worker_type: String,
     worker: WorkerContext,
-    last_seen: DateTime<Utc>,
+    last_seen: RawDateTime,
     backend_type: &str,
 ) -> Result<(), sqlx::Error> {
     let res = sqlx::query_file!(

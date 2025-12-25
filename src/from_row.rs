@@ -1,4 +1,5 @@
-use chrono::{DateTime, Utc};
+use crate::{PgDateTime, RawDateTime};
+
 #[derive(Debug)]
 pub struct PgTaskRow {
     pub job: Option<Vec<u8>>,
@@ -7,18 +8,19 @@ pub struct PgTaskRow {
     pub status: Option<String>,
     pub attempts: Option<i32>,
     pub max_attempts: Option<i32>,
-    pub run_at: Option<DateTime<Utc>>,
+    pub run_at: Option<RawDateTime>,
     pub last_result: Option<serde_json::Value>,
-    pub lock_at: Option<DateTime<Utc>>,
+    pub lock_at: Option<RawDateTime>,
     pub lock_by: Option<String>,
-    pub done_at: Option<DateTime<Utc>>,
+    pub done_at: Option<RawDateTime>,
     pub priority: Option<i32>,
     pub metadata: Option<serde_json::Value>,
 }
-impl TryInto<apalis_sql::from_row::TaskRow> for PgTaskRow {
+
+impl TryInto<apalis_sql::from_row::TaskRow<PgDateTime>> for PgTaskRow {
     type Error = sqlx::Error;
 
-    fn try_into(self) -> Result<apalis_sql::from_row::TaskRow, Self::Error> {
+    fn try_into(self) -> Result<apalis_sql::from_row::TaskRow<PgDateTime>, Self::Error> {
         Ok(apalis_sql::from_row::TaskRow {
             job: self.job.unwrap_or_default(),
             id: self
@@ -35,11 +37,11 @@ impl TryInto<apalis_sql::from_row::TaskRow> for PgTaskRow {
                 .ok_or_else(|| sqlx::Error::Protocol("Missing attempts".into()))?
                 as usize,
             max_attempts: self.max_attempts.map(|v| v as usize),
-            run_at: self.run_at,
+            run_at: self.run_at.map(PgDateTime::from),
             last_result: self.last_result,
-            lock_at: self.lock_at,
+            lock_at: self.lock_at.map(PgDateTime::from),
             lock_by: self.lock_by,
-            done_at: self.done_at,
+            done_at: self.done_at.map(PgDateTime::from),
             priority: self.priority.map(|v| v as usize),
             metadata: self.metadata,
         })

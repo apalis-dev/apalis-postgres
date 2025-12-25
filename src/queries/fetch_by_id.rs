@@ -24,7 +24,7 @@ where
                 .fetch_optional(&pool)
                 .await?
                 .map(|r: PgTaskRow| {
-                    let row: TaskRow = r.try_into()?;
+                    let row: TaskRow<crate::PgDateTime> = r.try_into()?;
                     row.try_into_task_compact()
                         .and_then(|a| {
                             a.try_map(|t| D::decode(&t))
