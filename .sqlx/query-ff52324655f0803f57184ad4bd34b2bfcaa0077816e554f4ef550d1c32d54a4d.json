@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    *\nFROM\n    apalis.workers\nWHERE\n    worker_type = $1\nORDER BY\n    last_seen DESC\nLIMIT\n    $2 OFFSET $3\n",
+  "query": "SELECT\n    id,\n    worker_type,\n    storage_name,\n    layers,\n    last_seen as \"last_seen: chrono::DateTime<chrono::Utc>\",\n    started_at as \"started_at: chrono::DateTime<chrono::Utc>\"\nFROM\n    apalis.workers\nWHERE\n    worker_type = $1\nORDER BY\n    last_seen DESC\nLIMIT\n    $2 OFFSET $3\n",
   "describe": {
     "columns": [
       {
@@ -25,12 +25,12 @@
       },
       {
         "ordinal": 4,
-        "name": "last_seen",
+        "name": "last_seen: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 5,
-        "name": "started_at",
+        "name": "started_at: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
       }
     ],
@@ -50,5 +50,5 @@
       true
     ]
   },
-  "hash": "7084948e4ad9e6ce5238a11cd3a80b62a46384d8c75433cbcee1746e26934f14"
+  "hash": "ff52324655f0803f57184ad4bd34b2bfcaa0077816e554f4ef550d1c32d54a4d"
 }

@@ -76,7 +76,7 @@ where
         &job_type,
         &job_data,
         &max_attempts_vec,
-        &run_ats,
+        run_ats.as_slice() as &[chrono::DateTime<chrono::Utc>],
         &priorities,
         &metadata
     )

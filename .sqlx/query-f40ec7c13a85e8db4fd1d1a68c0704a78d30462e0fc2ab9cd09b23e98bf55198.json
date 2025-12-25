@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE\n    apalis.jobs\nSET\n    status = 'Running',\n    lock_at = now(),\n    lock_by = $2\nWHERE\n    (\n        status = 'Pending'\n        OR status = 'Queued'\n        OR (\n            status = 'Failed'\n            AND attempts < max_attempts\n        )\n    )\n    AND run_at < now()\n    AND id = ANY($1) RETURNING *;\n",
+  "query": "SELECT\n    job,\n    id,\n    job_type,\n    status,\n    attempts,\n    max_attempts,\n    run_at as \"run_at: chrono::DateTime<chrono::Utc>\",\n    last_result,\n    lock_at as \"lock_at: chrono::DateTime<chrono::Utc>\",\n    lock_by,\n    done_at as \"done_at: chrono::DateTime<chrono::Utc>\",\n    priority,\n    metadata\nFROM\n    apalis.jobs\nWHERE\n    status = $1\nORDER BY\n    done_at DESC,\n    run_at DESC\nLIMIT\n    $2 OFFSET $3\n",
   "describe": {
     "columns": [
       {
@@ -35,7 +35,7 @@
       },
       {
         "ordinal": 6,
-        "name": "run_at",
+        "name": "run_at: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
       },
       {
@@ -45,7 +45,7 @@
       },
       {
         "ordinal": 8,
-        "name": "lock_at",
+        "name": "lock_at: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
       },
       {
@@ -55,7 +55,7 @@
       },
       {
         "ordinal": 10,
-        "name": "done_at",
+        "name": "done_at: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
       },
       {
@@ -71,8 +71,9 @@
     ],
     "parameters": {
       "Left": [
-        "TextArray",
-        "Text"
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -91,5 +92,5 @@
       true
     ]
   },
-  "hash": "6ce4a9f7891abb2452136bef3a9d9065d452490dc7dde0d6f0590838f386f39c"
+  "hash": "f40ec7c13a85e8db4fd1d1a68c0704a78d30462e0fc2ab9cd09b23e98bf55198"
 }
