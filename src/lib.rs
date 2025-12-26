@@ -6,7 +6,7 @@ use std::{fmt::Debug, marker::PhantomData};
 
 use apalis_codec::json::JsonCodec;
 use apalis_core::{
-    backend::{Backend, BackendExt, TaskStream, codec::Codec, queue::Queue},
+    backend::{Backend, BackendExt, TaskStream, codec::Codec},
     features_table,
     layers::Stack,
     task::{Task, task_id::TaskId},
@@ -36,7 +36,7 @@ mod ack;
 mod fetcher;
 mod from_row;
 
-pub type PgContext = apalis_sql::context::SqlContext<PgPool>;
+pub type PgContext = apalis_sql::context::SqlContext;
 mod queries;
 pub mod shared;
 pub mod sink;
@@ -251,9 +251,6 @@ where
     type Codec = Decode;
     type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
 
-    fn get_queue(&self) -> Queue {
-        self.config.queue().clone()
-    }
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll_basic(worker).boxed()
     }
@@ -347,10 +344,6 @@ where
 
     type Codec = Decode;
     type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
-
-    fn get_queue(&self) -> Queue {
-        self.config.queue().clone()
-    }
 
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll_with_notify(worker).boxed()
