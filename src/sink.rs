@@ -63,7 +63,9 @@ where
                 .unwrap_or(Ulid::new().to_string()),
         );
         job_data.push(task.args);
-        run_ats.push(<SqlDateTime as SqlDateTimeExt>::from_unix_timestamp(task.parts.run_at as i64));
+        run_ats.push(<SqlDateTime as SqlDateTimeExt>::from_unix_timestamp(
+            task.parts.run_at as i64,
+        ));
         priorities.push(task.parts.ctx.priority());
         max_attempts_vec.push(task.parts.ctx.max_attempts());
         metadata.push(serde_json::Value::Object(task.parts.ctx.meta().clone()));
