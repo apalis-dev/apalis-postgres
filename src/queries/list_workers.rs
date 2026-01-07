@@ -1,5 +1,5 @@
 use apalis_core::backend::{BackendExt, ListWorkers, RunningWorker};
-use apalis_sql::{SqlDateTime, SqlDateTimeExt};
+use apalis_sql::{DateTime, DateTimeExt};
 use futures::TryFutureExt;
 use ulid::Ulid;
 
@@ -9,8 +9,8 @@ pub struct WorkerRow {
     pub worker_type: String,
     pub storage_name: String,
     pub layers: Option<String>,
-    pub last_seen: SqlDateTime,
-    pub started_at: Option<SqlDateTime>,
+    pub last_seen: DateTime,
+    pub started_at: Option<DateTime>,
 }
 
 use crate::{CompactType, PgContext, PostgresStorage};

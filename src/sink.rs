@@ -1,5 +1,5 @@
 use apalis_codec::json::JsonCodec;
-use apalis_sql::{SqlDateTime, SqlDateTimeExt, config::Config};
+use apalis_sql::{DateTime, DateTimeExt, config::Config};
 use futures::{
     FutureExt, Sink, TryFutureExt,
     future::{BoxFuture, Shared},
@@ -63,7 +63,7 @@ where
                 .unwrap_or(Ulid::new().to_string()),
         );
         job_data.push(task.args);
-        run_ats.push(<SqlDateTime as SqlDateTimeExt>::from_unix_timestamp(
+        run_ats.push(<DateTime as DateTimeExt>::from_unix_timestamp(
             task.parts.run_at as i64,
         ));
         priorities.push(task.parts.ctx.priority());

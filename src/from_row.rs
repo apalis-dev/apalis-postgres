@@ -1,4 +1,4 @@
-use apalis_sql::{SqlDateTime, TaskRow};
+use apalis_sql::{DateTime, TaskRow};
 
 #[derive(Debug)]
 pub struct PgTaskRow {
@@ -8,11 +8,11 @@ pub struct PgTaskRow {
     pub status: Option<String>,
     pub attempts: Option<i32>,
     pub max_attempts: Option<i32>,
-    pub run_at: Option<SqlDateTime>,
+    pub run_at: Option<DateTime>,
     pub last_result: Option<serde_json::Value>,
-    pub lock_at: Option<SqlDateTime>,
+    pub lock_at: Option<DateTime>,
     pub lock_by: Option<String>,
-    pub done_at: Option<SqlDateTime>,
+    pub done_at: Option<DateTime>,
     pub priority: Option<i32>,
     pub metadata: Option<serde_json::Value>,
 }

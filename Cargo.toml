@@ -24,11 +24,11 @@ chrono = ["apalis-sql/chrono", "sqlx/chrono"]
 time = ["apalis-sql/time", "sqlx/time"]
 
 [dependencies]
-apalis-core = { git = "https://github.com/apalis-dev/apalis", version = "1.0.0-rc.1", default-features = false, features = [
+apalis-core = { git = "https://github.com/apalis-dev/apalis", version = "1.0.0-rc.2", default-features = false, features = [
   "sleep",
 ] }
-apalis-sql = { git = "https://github.com/apalis-dev/apalis", version = "1.0.0-rc.1", default-features = false }
-apalis-codec = { git = "https://github.com/apalis-dev/apalis", version = "0.1.0-rc.1", features = ["json"] }
+apalis-sql = { git = "https://github.com/apalis-dev/apalis", version = "1.0.0-rc.2", default-features = false }
+apalis-codec = { git = "https://github.com/apalis-dev/apalis", version = "0.1.0-rc.2", features = ["json"] }
 serde = { version = "1", features = ["derive"], default-features = false }
 pin-project = "1.1.10"
 serde_json = "1"
@@ -50,6 +50,6 @@ features = ["postgres", "json"]
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 once_cell = "1.19.0"
-apalis = { git = "https://github.com/apalis-dev/apalis", version = "1.0.0-rc.1" }
-apalis-workflow = { git = "https://github.com/apalis-dev/apalis", version = "0.1.0-rc.1" }
+apalis = { git = "https://github.com/apalis-dev/apalis", version = "1.0.0-rc.2" }
+apalis-workflow = { git = "https://github.com/apalis-dev/apalis", version = "0.1.0-rc.2" }
 futures-util = "0.3.30"
