@@ -252,7 +252,7 @@ where
     type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
 
     fn get_queue(&self) -> Queue {
-        Queue::from(self.config.queue().to_string())
+        self.config.queue().clone()
     }
 
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
@@ -350,7 +350,7 @@ where
     type CompactStream = TaskStream<PgTask<CompactType>, Self::Error>;
 
     fn get_queue(&self) -> Queue {
-        Queue::from(self.config.queue().to_string())
+        self.config.queue().clone()
     }
 
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
