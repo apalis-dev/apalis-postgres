@@ -1,5 +1,5 @@
 use apalis_core::worker::context::WorkerContext;
-use chrono::Utc;
+use apalis_sql::{DateTime, DateTimeExt};
 use futures::{FutureExt, Stream, stream};
 use sqlx::PgPool;
 
@@ -36,7 +36,7 @@ pub async fn initial_heartbeat(
     storage_type: &str,
 ) -> Result<(), sqlx::Error> {
     reenqueue_orphaned(pool.clone(), config.clone()).await?;
-    let last_seen = Utc::now();
+    let last_seen = DateTime::now();
     register_worker(
         pool,
         config.queue().to_string(),

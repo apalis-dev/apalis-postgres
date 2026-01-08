@@ -1,4 +1,5 @@
-use chrono::{DateTime, Utc};
+use apalis_sql::{DateTime, TaskRow};
+
 #[derive(Debug)]
 pub struct PgTaskRow {
     pub job: Option<Vec<u8>>,
@@ -7,19 +8,19 @@ pub struct PgTaskRow {
     pub status: Option<String>,
     pub attempts: Option<i32>,
     pub max_attempts: Option<i32>,
-    pub run_at: Option<DateTime<Utc>>,
+    pub run_at: Option<DateTime>,
     pub last_result: Option<serde_json::Value>,
-    pub lock_at: Option<DateTime<Utc>>,
+    pub lock_at: Option<DateTime>,
     pub lock_by: Option<String>,
-    pub done_at: Option<DateTime<Utc>>,
+    pub done_at: Option<DateTime>,
     pub priority: Option<i32>,
     pub metadata: Option<serde_json::Value>,
 }
-impl TryInto<apalis_sql::from_row::TaskRow> for PgTaskRow {
+impl TryInto<TaskRow> for PgTaskRow {
     type Error = sqlx::Error;
 
-    fn try_into(self) -> Result<apalis_sql::from_row::TaskRow, Self::Error> {
-        Ok(apalis_sql::from_row::TaskRow {
+    fn try_into(self) -> Result<TaskRow, Self::Error> {
+        Ok(TaskRow {
             job: self.job.unwrap_or_default(),
             id: self
                 .id

@@ -254,6 +254,7 @@ where
     fn get_queue(&self) -> Queue {
         self.config.queue().clone()
     }
+
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll_basic(worker).boxed()
     }
