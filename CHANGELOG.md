@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+## [1.0.0-rc.2] - 2026-01-10
+
+- bump: introducing rc.2
 - feat: use DateTime abstraction from apalis-sql
 - bump: update apalis deps to rc.2
+
+## [1.0.0-rc.1] - 2025-12-27
+
 - bump: introducing rc.1 (#45)
 - fix: Add primary keys for database tables (#45)
 
