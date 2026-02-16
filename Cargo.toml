@@ -24,7 +24,7 @@ chrono = ["apalis-sql/chrono", "sqlx/chrono"]
 time = ["apalis-sql/time", "sqlx/time"]
 
 [dependencies]
-apalis-core = { version = "1.0.0-rc.3", default-features = false, features = [
+apalis-core = { version = "1.0.0-rc.4", default-features = false, features = [
   "sleep",
 ] }
 apalis-sql = { version = "1.0.0-rc.3", default-features = false }
