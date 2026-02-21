@@ -51,8 +51,8 @@ enum StreamState<Args> {
 
 /// Dispatcher for fetching tasks from a PostgreSQL backend via [PgPollFetcher]
 #[derive(Clone, Debug)]
-pub struct PgFetcher<Args, Compact, Decode> {
-    pub _marker: PhantomData<(Args, Compact, Decode)>,
+pub struct PgFetcher<Compact, Decode> {
+    pub _marker: PhantomData<(Compact, Decode)>,
 }
 
 #[pin_project]

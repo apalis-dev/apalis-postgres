@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [1.0.0-rc.4] - 2026-02-21
+
+- bump: introducing rc.4
+
 ## [1.0.0-rc.3] - 2026-02-02
 
 - bump: introducing rc.3
