@@ -79,7 +79,7 @@ pub struct PostgresStorage<
     Args,
     Compact = CompactType,
     Codec = JsonCodec<CompactType>,
-    Fetcher = PgFetcher<Args, Compact, Codec>,
+    Fetcher = PgFetcher<Compact, Codec>,
 > {
     _marker: PhantomData<(Args, Compact, Codec)>,
     pool: PgPool,
@@ -184,7 +184,7 @@ impl<Args, Compact, Codec, Fetcher> PostgresStorage<Args, Compact, Codec, Fetche
 }
 
 impl<Args, Decode> Backend
-    for PostgresStorage<Args, CompactType, Decode, PgFetcher<Args, CompactType, Decode>>
+    for PostgresStorage<Args, CompactType, Decode, PgFetcher<CompactType, Decode>>
 where
     Args: Send + 'static + Unpin,
     Decode: Codec<Args, Compact = CompactType> + Send + 'static,
@@ -240,7 +240,7 @@ where
 }
 
 impl<Args, Decode> BackendExt
-    for PostgresStorage<Args, CompactType, Decode, PgFetcher<Args, CompactType, Decode>>
+    for PostgresStorage<Args, CompactType, Decode, PgFetcher<CompactType, Decode>>
 where
     Args: Send + 'static + Unpin,
     Decode: Codec<Args, Compact = CompactType> + Send + 'static,
@@ -260,7 +260,7 @@ where
     }
 }
 
-impl<Args, Decode> PostgresStorage<Args, CompactType, Decode, PgFetcher<Args, CompactType, Decode>>
+impl<Args, Decode> PostgresStorage<Args, CompactType, Decode, PgFetcher<CompactType, Decode>>
 where
     Args: Send + 'static + Unpin,
 {
