@@ -4,7 +4,7 @@
 //! [`SharedPostgresStorage`]: crate::shared::SharedPostgresStorage
 use std::{fmt::Debug, marker::PhantomData};
 
-use apalis_codec::json::JsonCodec;
+pub use apalis_codec::json::JsonCodec;
 use apalis_core::{
     backend::{Backend, BackendExt, TaskStream, codec::Codec, queue::Queue},
     features_table,
