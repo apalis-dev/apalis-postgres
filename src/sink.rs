@@ -54,6 +54,7 @@ where
     let mut priorities = Vec::new();
     let mut max_attempts_vec = Vec::new();
     let mut metadata = Vec::new();
+    let mut idempotency_key: Vec<Option<String>> = Vec::new();
 
     for task in buffer {
         ids.push(
@@ -69,6 +70,7 @@ where
         priorities.push(task.parts.ctx.priority());
         max_attempts_vec.push(task.parts.ctx.max_attempts());
         metadata.push(serde_json::Value::Object(task.parts.ctx.meta().clone()));
+        idempotency_key.push(task.parts.idempotency_key);
     }
 
     sqlx::query_file!(
@@ -79,7 +81,8 @@ where
         &max_attempts_vec,
         &run_ats,
         &priorities,
-        &metadata
+        &metadata,
+        &idempotency_key as &[Option<String>]
     )
     .execute(conn)
     .map_ok(|_| ())

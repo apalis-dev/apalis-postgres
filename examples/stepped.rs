@@ -9,8 +9,6 @@ async fn main() {
     let workflow = Workflow::new("odd-numbers-workflow")
         .and_then(|a: usize| async move { Ok::<_, BoxDynError>((0..=a).collect::<Vec<_>>()) })
         .filter_map(|x| async move { if x % 2 != 0 { Some(x) } else { None } })
-        .filter_map(|x| async move { if x % 3 != 0 { Some(x) } else { None } })
-        .filter_map(|x| async move { if x % 5 != 0 { Some(x) } else { None } })
         .delay_for(Duration::from_millis(1000))
         .and_then(
             |a: Vec<usize>, ctx: WorkerContext, task_id: PgTaskId| async move {

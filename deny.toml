@@ -37,6 +37,7 @@ skip-tree = [
     { name = "rand" },
     { name = "rand_chacha" },
     { name = "rand_core" },
+    { name = "redox_syscall" },
 ]
 
 [sources]

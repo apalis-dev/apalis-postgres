@@ -8,7 +8,8 @@ INSERT INTO
         max_attempts,
         run_at,
         priority,
-        metadata
+        metadata,
+        idempotency_key
     )
 SELECT
     unnest($1::text[]) as id,
@@ -19,4 +20,5 @@ SELECT
     unnest($4::integer []) as max_attempts,
     unnest($5::timestamptz []) as run_at,
     unnest($6::integer []) as priority,
-    unnest($7::jsonb []) as metadata
+    unnest($7::jsonb []) as metadata,
+    unnest($8::text []) as idempotency_key

@@ -17,10 +17,9 @@ where
 {
     fn list_tasks(
         &self,
-        queue: &str,
         filter: &Filter,
     ) -> impl Future<Output = Result<Vec<PgTask<Args>>, Self::Error>> + Send {
-        let queue = queue.to_string();
+        let queue = self.config.queue().to_string();
         let pool = self.pool.clone();
         let limit = filter.limit() as i64;
         let offset = filter.offset() as i64;

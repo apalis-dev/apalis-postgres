@@ -14,6 +14,7 @@ pub struct PgTaskRow {
     pub lock_by: Option<String>,
     pub done_at: Option<DateTime>,
     pub priority: Option<i32>,
+    pub idempotency_key: Option<String>,
     pub metadata: Option<serde_json::Value>,
 }
 impl TryInto<TaskRow> for PgTaskRow {
@@ -42,6 +43,7 @@ impl TryInto<TaskRow> for PgTaskRow {
             lock_by: self.lock_by,
             done_at: self.done_at,
             priority: self.priority.map(|v| v as usize),
+            idempotency_key: self.idempotency_key,
             metadata: self.metadata,
         })
     }
