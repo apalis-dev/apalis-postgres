@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fix: confine apalis's objects to the `apalis` schema (#86):
+  - `generate_ulid` is now `apalis.generate_ulid` and no longer depends on `pgcrypto` — its random bytes come from core `gen_random_uuid()`. The sole caller (`apalis.push_job`) is repointed and the `public.generate_ulid` copy is dropped (via a new forward migration; existing migrations are not rewritten).
+  - The sqlx migrations table is tracked in `apalis._sqlx_migrations` instead of `public._sqlx_migrations` (configured in a new `sqlx.toml`). This also isolates apalis's migration history from a user's own sqlx migrations on the same database, which previously collided over the shared default table name.
+- bump: upgrade `sqlx` 0.8 → 0.9 (required for `sqlx.toml`); remap the runtime/TLS cargo features since 0.9 removed the combined `runtime-*-tls` flags.
+- **Upgrade is automatic.** `PostgresStorage::setup()` relocates an existing `public._sqlx_migrations` into the `apalis` schema and re-stamps checksums on first run, so existing deployments migrate with no manual steps and nothing is re-run. (The only edited migration is the first one — `CREATE SCHEMA` → `CREATE SCHEMA IF NOT EXISTS` — whose checksum is healed automatically.) Deployments that apply migrations only via the sqlx CLI rather than `setup()` should run `ALTER TABLE public._sqlx_migrations SET SCHEMA apalis;` once before upgrading.
+- note: `pgcrypto` is no longer used by apalis but is left where an earlier version installed it (usually `public`). If nothing else needs it, you can `DROP EXTENSION pgcrypto;`.
+
 ## [1.0.0-rc.8] - 2026-05-08
 
 - feat: idempotency for tasks (#81)

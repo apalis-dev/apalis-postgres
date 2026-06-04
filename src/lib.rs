@@ -114,7 +114,66 @@ impl PostgresStorage<(), (), ()> {
     /// Perform migrations for storage
     #[cfg(feature = "migrate")]
     pub async fn setup(pool: &PgPool) -> Result<(), sqlx::Error> {
+        Self::relocate_legacy_migrations_table(pool).await?;
         Self::migrations().run(pool).await?;
+        Ok(())
+    }
+
+    /// One-time transition for deployments created before the migrations table
+    /// was confined to the `apalis` schema.
+    ///
+    /// Up to `1.0.0-rc.8`, sqlx tracked applied migrations in the default
+    /// `public._sqlx_migrations`; the migrations table now lives in
+    /// `apalis._sqlx_migrations` (configured in `sqlx.toml`). If we find an
+    /// apalis-owned `public._sqlx_migrations` and no `apalis._sqlx_migrations`,
+    /// we move it into `apalis` and re-stamp the checksum of any migration whose
+    /// content changed in `1.0` (only the first migration did, gaining
+    /// `IF NOT EXISTS`), so the embedded migrator recognizes the existing history
+    /// instead of re-running every migration on a populated database.
+    ///
+    /// The move is guarded so it never adopts a `public._sqlx_migrations` that
+    /// belongs to a user's own sqlx migrations sharing the default name.
+    #[cfg(feature = "migrate")]
+    async fn relocate_legacy_migrations_table(pool: &PgPool) -> Result<(), sqlx::Error> {
+        let needs_relocation: bool = sqlx::query_scalar(
+            "SELECT to_regclass('public._sqlx_migrations') IS NOT NULL \
+                AND to_regclass('apalis._sqlx_migrations') IS NULL",
+        )
+        .fetch_one(pool)
+        .await?;
+        if !needs_relocation {
+            return Ok(());
+        }
+
+        // Only adopt a table that is actually apalis's: it must contain apalis's
+        // very first migration. A user's own `public._sqlx_migrations` won't.
+        let is_apalis_table: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM public._sqlx_migrations WHERE version = 20220530084123)",
+        )
+        .fetch_one(pool)
+        .await?;
+        if !is_apalis_table {
+            return Ok(());
+        }
+
+        sqlx::query("CREATE SCHEMA IF NOT EXISTS apalis")
+            .execute(pool)
+            .await?;
+        sqlx::query("ALTER TABLE public._sqlx_migrations SET SCHEMA apalis")
+            .execute(pool)
+            .await?;
+        // Re-stamp checksums to the embedded migrator's values so edited
+        // migrations are recognized as already applied (no-op for unchanged ones).
+        for migration in Self::migrations().iter() {
+            sqlx::query(
+                "UPDATE apalis._sqlx_migrations SET checksum = $1 \
+                 WHERE version = $2 AND checksum <> $1",
+            )
+            .bind(migration.checksum.as_ref())
+            .bind(migration.version)
+            .execute(pool)
+            .await?;
+        }
         Ok(())
     }
 

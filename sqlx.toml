@@ -1,0 +1,4 @@
+[migrate]
+create-schemas = ["apalis"]
+table-name = "apalis._sqlx_migrations"
+
