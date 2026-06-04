@@ -16,10 +16,10 @@ publish = true
 [features]
 default = ["migrate", "tokio-comp", "chrono"]
 migrate = ["sqlx/migrate", "sqlx/macros"]
-async-std-comp = ["async-std", "sqlx/runtime-async-std-rustls"]
-async-std-comp-native-tls = ["async-std", "sqlx/runtime-async-std-native-tls"]
-tokio-comp = ["tokio", "sqlx/runtime-tokio-rustls"]
-tokio-comp-native-tls = ["tokio", "sqlx/runtime-tokio-native-tls"]
+async-std-comp = ["async-std", "sqlx/runtime-async-std", "sqlx/tls-rustls"]
+async-std-comp-native-tls = ["async-std", "sqlx/runtime-async-std", "sqlx/tls-native-tls"]
+tokio-comp = ["tokio", "sqlx/runtime-tokio", "sqlx/tls-rustls"]
+tokio-comp-native-tls = ["tokio", "sqlx/runtime-tokio", "sqlx/tls-native-tls"]
 chrono = ["apalis-sql/chrono", "sqlx/chrono"]
 time = ["apalis-sql/time", "sqlx/time"]
 
@@ -43,9 +43,9 @@ ulid = { version = "1", features = ["serde"] }
 
 
 [dependencies.sqlx]
-version = "0.8.1"
+version = "0.9"
 default-features = false
-features = ["postgres", "json"]
+features = ["postgres", "json", "sqlx-toml"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

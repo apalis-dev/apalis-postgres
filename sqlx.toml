@@ -1,0 +1,12 @@
+# sqlx configuration (sqlx >= 0.9)
+#
+# Keeps every object apalis creates inside the `apalis` schema. Without this,
+# sqlx's migration-tracking table is created as `public._sqlx_migrations`.
+[migrate]
+# Create the `apalis` schema (if absent) *before* the migrations table is
+# created, so the table below can be placed inside it.
+create-schemas = ["apalis"]
+
+# Track applied migrations in `apalis._sqlx_migrations` rather than the default
+# `public._sqlx_migrations`.
+table-name = "apalis._sqlx_migrations"

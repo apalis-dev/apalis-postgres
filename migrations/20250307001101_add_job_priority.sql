@@ -51,7 +51,7 @@ CREATE OR REPLACE FUNCTION apalis.push_job(
         end IF;
 
         SELECT
-            generate_ulid() INTO v_job_id;
+            apalis.generate_ulid() INTO v_job_id;
         INSERT INTO
             apalis.jobs
         VALUES

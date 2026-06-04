@@ -38,6 +38,12 @@ skip-tree = [
     { name = "rand_chacha" },
     { name = "rand_core" },
     { name = "redox_syscall" },
+    # sqlx 0.9 pulls two incompatible digest stacks internally: sqlx-core uses
+    # digest 0.10 / sha2 0.10, while sqlx-postgres (hmac/md-5/hkdf) uses 0.11.
+    { name = "block-buffer" },
+    { name = "crypto-common" },
+    { name = "digest" },
+    { name = "sha2" },
 ]
 
 [sources]

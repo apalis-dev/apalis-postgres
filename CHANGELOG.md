@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- fix: confine all objects to the `apalis` schema (#86). `generate_ulid` is now `apalis.generate_ulid` (with a pinned `search_path` so `pgcrypto` resolves wherever it lives), `pgcrypto` is installed into the `apalis` schema on fresh databases, and the sqlx migrations table is tracked in `apalis._sqlx_migrations` via a new `sqlx.toml`. Nothing apalis creates lands in `public` anymore.
+- bump: upgrade `sqlx` 0.8 → 0.9 (required for `sqlx.toml`); remap the runtime/TLS cargo features since 0.9 removed the combined `runtime-*-tls` flags.
+- **Breaking:** existing deployments track migrations in `public._sqlx_migrations`; after upgrading, sqlx looks for `apalis._sqlx_migrations` and will attempt to re-run every migration. Recreate the `apalis` schema (and drop `public._sqlx_migrations`) when upgrading.
+
 ## [1.0.0-rc.8] - 2026-05-08
 
 - feat: idempotency for tasks (#81)

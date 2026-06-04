@@ -1,6 +1,6 @@
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA apalis;
 
-CREATE OR REPLACE FUNCTION  generate_ulid()
+CREATE OR REPLACE FUNCTION  apalis.generate_ulid()
 RETURNS TEXT
 AS $$
 DECLARE
@@ -58,7 +58,8 @@ BEGIN
 END
 $$
 LANGUAGE plpgsql
-VOLATILE;
+VOLATILE
+SET search_path = apalis, public;
 
 
 CREATE OR REPLACE FUNCTION apalis.push_job(
@@ -81,7 +82,7 @@ CREATE OR REPLACE FUNCTION apalis.push_job(
         end IF;
 
         SELECT
-            generate_ulid() INTO v_job_id;
+            apalis.generate_ulid() INTO v_job_id;
         INSERT INTO
             apalis.jobs
         VALUES
