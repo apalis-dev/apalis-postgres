@@ -220,6 +220,43 @@ async fn main() {
 Track your jobs using [apalis-board](https://github.com/apalis-dev/apalis-board).
 ![Task](https://github.com/apalis-dev/apalis-board/raw/main/screenshots/task.png)
 
+## Upgrading to 1.0
+
+1.0 confines everything apalis creates to the `apalis` schema. Two things move out of `public`:
+
+- The sqlx migrations table is now tracked in `apalis._sqlx_migrations` (configured in `sqlx.toml`) instead of `public._sqlx_migrations`. This also keeps apalis's migration history from colliding with your own sqlx migrations on the same database.
+- `generate_ulid()` is now `apalis.generate_ulid()` and no longer depends on the `pgcrypto` extension — its random bytes come from core `gen_random_uuid()`. The `public.generate_ulid()` copy is dropped.
+
+### If you use `PostgresStorage::setup()`
+
+Nothing to do. On the next start, `setup()` relocates an existing `public._sqlx_migrations` into the `apalis` schema and re-stamps checksums before running migrations, so the upgrade is automatic and nothing is re-run.
+
+### If you apply migrations yourself (sqlx-cli, or you copied the migration files into your own project)
+
+`setup()` is what performs the relocation, so paths that bypass it need one manual, one-time step **before** running the 1.0 migrations against an existing database:
+
+```sql
+-- Move apalis's existing migration history into the apalis schema.
+ALTER TABLE public._sqlx_migrations SET SCHEMA apalis;
+
+-- The first migration gained `IF NOT EXISTS` (so the apalis schema can be
+-- created before the tracking table on fresh installs). Re-stamp its checksum
+-- so sqlx doesn't reject it as modified:
+UPDATE apalis._sqlx_migrations
+   SET checksum = decode('d0839c6f57a379769dc27ccd581feb3d2709239c8f138e05271c9e3c760c4517a78a4d8912ab3d63b074b28d15ec74e9', 'hex')
+ WHERE version = 20220530084123;
+```
+
+Fresh databases need none of this — `sqlx.toml` creates the `apalis` schema and tracking table for you.
+
+### `pgcrypto`
+
+apalis no longer uses `pgcrypto`. An earlier version installed it (usually in `public`); it is left untouched in case something else depends on it. If nothing else needs it, you can remove it:
+
+```sql
+DROP EXTENSION pgcrypto;
+```
+
 ## License
 
 Licensed under either of Apache License, Version 2.0 or MIT license at your option.
