@@ -111,30 +111,27 @@ impl<Args, Compact, Codec, Fetcher: Clone> Clone
 }
 
 impl PostgresStorage<(), (), ()> {
-    /// Perform migrations for storage
+    /// Perform migrations for storage.
+    ///
+    /// On an existing database this also performs the one-time `1.0` migration
+    /// history transition before running migrations, so upgrades are automatic.
+    /// If you instead merge [`migrations()`](Self::migrations) into your own
+    /// [`Migrator`](sqlx::migrate::Migrator), you bypass `setup()` — call
+    /// [`reconcile_migration_checksums`](Self::reconcile_migration_checksums)
+    /// against that migrator's table before running it.
     #[cfg(feature = "migrate")]
     pub async fn setup(pool: &PgPool) -> Result<(), sqlx::Error> {
         Self::relocate_legacy_migrations_table(pool).await?;
+        Self::reconcile_migration_checksums(pool, "apalis._sqlx_migrations").await?;
         Self::migrations().run(pool).await?;
         Ok(())
     }
 
-    /// One-time transition for deployments created before the migrations table
-    /// was confined to the `apalis` schema.
-    ///
-    /// Up to `1.0.0-rc.8`, sqlx tracked applied migrations in the default
-    /// `public._sqlx_migrations`; the migrations table now lives in
-    /// `apalis._sqlx_migrations` (configured in `sqlx.toml`). If we find an
-    /// apalis-owned `public._sqlx_migrations` and no `apalis._sqlx_migrations`,
-    /// we move it into `apalis` and re-stamp the checksum of any migration whose
-    /// content changed in `1.0` (only the first migration did, gaining
-    /// `IF NOT EXISTS`), so the embedded migrator recognizes the existing history
-    /// instead of re-running every migration on a populated database.
-    ///
-    /// The move is guarded so it never adopts a `public._sqlx_migrations` that
-    /// belongs to a user's own sqlx migrations sharing the default name.
+    /// Move apalis's pre-`1.0` migration history from `public._sqlx_migrations`
+    /// into `apalis._sqlx_migrations`, where `1.0` tracks it. No-op once the
+    /// `apalis` table exists or on fresh databases. Does not re-stamp checksums.
     #[cfg(feature = "migrate")]
-    async fn relocate_legacy_migrations_table(pool: &PgPool) -> Result<(), sqlx::Error> {
+    pub async fn relocate_legacy_migrations_table(pool: &PgPool) -> Result<(), sqlx::Error> {
         let needs_relocation: bool = sqlx::query_scalar(
             "SELECT to_regclass('public._sqlx_migrations') IS NOT NULL \
                 AND to_regclass('apalis._sqlx_migrations') IS NULL",
@@ -145,8 +142,7 @@ impl PostgresStorage<(), (), ()> {
             return Ok(());
         }
 
-        // Only adopt a table that is actually apalis's: it must contain apalis's
-        // very first migration. A user's own `public._sqlx_migrations` won't.
+        // Only adopt a table that is apalis's: a user's own won't have this row.
         let is_apalis_table: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM public._sqlx_migrations WHERE version = 20220530084123)",
         )
@@ -162,17 +158,36 @@ impl PostgresStorage<(), (), ()> {
         sqlx::query("ALTER TABLE public._sqlx_migrations SET SCHEMA apalis")
             .execute(pool)
             .await?;
-        // Re-stamp checksums to the embedded migrator's values so edited
-        // migrations are recognized as already applied (no-op for unchanged ones).
-        for migration in Self::migrations().iter() {
-            sqlx::query(
-                "UPDATE apalis._sqlx_migrations SET checksum = $1 \
-                 WHERE version = $2 AND checksum <> $1",
-            )
-            .bind(migration.checksum.as_ref())
-            .bind(migration.version)
-            .execute(pool)
+        Ok(())
+    }
+
+    /// Re-stamp the checksum of any migration whose content changed in `1.0` (only
+    /// the first, which gained `IF NOT EXISTS`) so an existing table isn't rejected
+    /// as modified. `setup()` calls this; call it yourself only when merging
+    /// [`migrations()`](Self::migrations) into your own
+    /// [`Migrator`](sqlx::migrate::Migrator), passing its table (e.g.
+    /// `"_sqlx_migrations"`), before you run it. No-op if `table` is fresh or absent.
+    #[cfg(feature = "migrate")]
+    pub async fn reconcile_migration_checksums(
+        pool: &PgPool,
+        table: &str,
+    ) -> Result<(), sqlx::Error> {
+        let table_exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+            .bind(table)
+            .fetch_one(pool)
             .await?;
+        if !table_exists {
+            return Ok(());
+        }
+
+        let update =
+            format!("UPDATE {table} SET checksum = $1 WHERE version = $2 AND checksum <> $1");
+        for migration in Self::migrations().iter() {
+            sqlx::query(sqlx::AssertSqlSafe(update.clone()))
+                .bind(migration.checksum.as_ref())
+                .bind(migration.version)
+                .execute(pool)
+                .await?;
         }
         Ok(())
     }

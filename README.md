@@ -249,6 +249,18 @@ UPDATE apalis._sqlx_migrations
 
 Fresh databases need none of this — `sqlx.toml` creates the `apalis` schema and tracking table for you.
 
+### If you merge `PostgresStorage::migrations()` into your own `Migrator`
+
+Your migrator owns its own tracking table, so it doesn't move to `apalis` and you don't run the relocation above. You only need to heal the one edited migration's checksum so your migrator doesn't reject it as modified. On an existing database, before running your migrator:
+
+```rust
+// `_sqlx_migrations` (or whatever table your Migrator uses)
+PostgresStorage::reconcile_migration_checksums(&pool, "_sqlx_migrations").await?;
+merged_migrator.run(&pool).await?;
+```
+
+It is a no-op on fresh databases.
+
 ### `pgcrypto`
 
 apalis no longer uses `pgcrypto`. An earlier version installed it (usually in `public`); it is left untouched in case something else depends on it. If nothing else needs it, you can remove it:
