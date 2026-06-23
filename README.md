@@ -227,13 +227,9 @@ Track your jobs using [apalis-board](https://github.com/apalis-dev/apalis-board)
 - The sqlx migrations table is now tracked in `apalis._sqlx_migrations` (configured in `sqlx.toml`) instead of `public._sqlx_migrations`. This also keeps apalis's migration history from colliding with your own sqlx migrations on the same database.
 - `generate_ulid()` is now `apalis.generate_ulid()` and no longer depends on the `pgcrypto` extension — its random bytes come from core `gen_random_uuid()`. The `public.generate_ulid()` copy is dropped.
 
-### If you use `PostgresStorage::setup()`
+### Existing databases: one-time manual step
 
-Nothing to do. On the next start, `setup()` relocates an existing `public._sqlx_migrations` into the `apalis` schema and re-stamps checksums before running migrations, so the upgrade is automatic and nothing is re-run.
-
-### If you apply migrations yourself (sqlx-cli, or you copied the migration files into your own project)
-
-`setup()` is what performs the relocation, so paths that bypass it need one manual, one-time step **before** running the 1.0 migrations against an existing database:
+This applies to **every** way of applying migrations — `PostgresStorage::setup()`, sqlx-cli, copied migration files, or a merged `Migrator`. Run this **once per database, before upgrading**:
 
 ```sql
 -- Move apalis's existing migration history into the apalis schema.
@@ -241,25 +237,23 @@ ALTER TABLE public._sqlx_migrations SET SCHEMA apalis;
 
 -- The first migration gained `IF NOT EXISTS` (so the apalis schema can be
 -- created before the tracking table on fresh installs). Re-stamp its checksum
--- so sqlx doesn't reject it as modified:
+-- so the migrator doesn't reject it as modified:
 UPDATE apalis._sqlx_migrations
    SET checksum = decode('d0839c6f57a379769dc27ccd581feb3d2709239c8f138e05271c9e3c760c4517a78a4d8912ab3d63b074b28d15ec74e9', 'hex')
  WHERE version = 20220530084123;
 ```
 
-Fresh databases need none of this — `sqlx.toml` creates the `apalis` schema and tracking table for you.
+Run it **before** upgrading. If you upgrade first without it, the migrator re-runs the first migration against your existing objects and fails with e.g. `function "notify_new_jobs" already exists`. If you've already hit that failure, an empty `apalis._sqlx_migrations` may have been created, which makes the `ALTER TABLE` above fail because the name is taken — drop it first:
 
-### If you merge `PostgresStorage::migrations()` into your own `Migrator`
-
-Your migrator owns its own tracking table, so it doesn't move to `apalis` and you don't run the relocation above. You only need to heal the one edited migration's checksum so your migrator doesn't reject it as modified. On an existing database, before running your migrator:
-
-```rust
-// `_sqlx_migrations` (or whatever table your Migrator uses)
-PostgresStorage::reconcile_migration_checksums(&pool, "_sqlx_migrations").await?;
-merged_migrator.run(&pool).await?;
+```sql
+DROP TABLE apalis._sqlx_migrations;
 ```
 
-It is a no-op on fresh databases.
+then run the two statements above.
+
+If you maintain your **own** `Migrator` (merging in `PostgresStorage::migrations()`), your tracking table stays where it is — skip the `ALTER TABLE` and run only the `UPDATE`, targeting your table name.
+
+Fresh databases need none of this — `sqlx.toml` creates the `apalis` schema and tracking table for you.
 
 ### `pgcrypto`
 
