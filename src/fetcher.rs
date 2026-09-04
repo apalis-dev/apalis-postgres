@@ -2,13 +2,24 @@ use std::{
     collections::VecDeque,
     marker::PhantomData,
     pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     task::{Context, Poll},
-    time::{Duration, Instant},
 };
 
-use apalis_core::{task::Task, timer::Delay, worker::context::WorkerContext};
+use apalis_core::{
+    backend::poll_strategy::{PollContext, PollStrategyExt},
+    task::Task,
+    worker::context::WorkerContext,
+};
 use apalis_sql::from_row::TaskRow;
-use futures::{Future, FutureExt, future::BoxFuture, stream::Stream};
+use futures::{
+    FutureExt,
+    future::BoxFuture,
+    stream::{Stream, StreamExt},
+};
 use pin_project::pin_project;
 
 use sqlx::{PgPool, Pool, Postgres};
@@ -44,7 +55,7 @@ async fn fetch_next(
 
 enum StreamState<Args> {
     Ready,
-    Delay(Delay),
+    Delay,
     Fetch(BoxFuture<'static, Result<Vec<PgTask<Args>>, sqlx::Error>>),
     Buffered(VecDeque<PgTask<Args>>),
 }
@@ -62,33 +73,38 @@ pub struct PgPollFetcher<Compact> {
     wrk: WorkerContext,
     #[pin]
     state: StreamState<Compact>,
-    current_backoff: Duration,
-    last_fetch_time: Option<Instant>,
+    poller: Pin<Box<dyn Stream<Item = ()> + Send>>,
+    prev_count: Arc<AtomicUsize>,
 }
 
 impl<Compact> Clone for PgPollFetcher<Compact> {
     fn clone(&self) -> Self {
+        let prev_count = Arc::new(AtomicUsize::new(1));
+        let poll_ctx = PollContext::new(self.wrk.clone(), prev_count.clone());
+        let poller = self.config.poll_strategy().clone().build_stream(&poll_ctx);
         Self {
             pool: self.pool.clone(),
             config: self.config.clone(),
             wrk: self.wrk.clone(),
             state: StreamState::Ready,
-            current_backoff: self.current_backoff,
-            last_fetch_time: self.last_fetch_time,
+            poller,
+            prev_count,
         }
     }
 }
 
 impl PgPollFetcher<CompactType> {
     pub fn new(pool: &Pool<Postgres>, config: &Config, wrk: &WorkerContext) -> Self {
-        let initial_backoff = Duration::from_secs(1);
+        let prev_count = Arc::new(AtomicUsize::new(1));
+        let poll_ctx = PollContext::new(wrk.clone(), prev_count.clone());
+        let poller = config.poll_strategy().clone().build_stream(&poll_ctx);
         Self {
             pool: pool.clone(),
             config: config.clone(),
             wrk: wrk.clone(),
             state: StreamState::Ready,
-            current_backoff: initial_backoff,
-            last_fetch_time: None,
+            poller,
+            prev_count,
         }
     }
 }
@@ -106,7 +122,7 @@ impl Stream for PgPollFetcher<CompactType> {
                         fetch_next(this.pool.clone(), this.config.clone(), this.wrk.clone());
                     this.state = StreamState::Fetch(stream.boxed());
                 }
-                StreamState::Delay(ref mut delay) => match Pin::new(delay).poll(cx) {
+                StreamState::Delay => match this.poller.poll_next_unpin(cx) {
                     Poll::Pending => return Poll::Pending,
                     Poll::Ready(_) => this.state = StreamState::Ready,
                 },
@@ -116,23 +132,20 @@ impl Stream for PgPollFetcher<CompactType> {
                     Poll::Ready(item) => match item {
                         Ok(requests) => {
                             if requests.is_empty() {
-                                let next = this.next_backoff(this.current_backoff);
-                                this.current_backoff = next;
-                                let delay = Delay::new(this.current_backoff);
-                                this.state = StreamState::Delay(delay);
+                                this.prev_count.store(0, Ordering::Relaxed);
+                                this.state = StreamState::Delay;
                             } else {
+                                this.prev_count.store(requests.len(), Ordering::Relaxed);
                                 let mut buffer = VecDeque::new();
                                 for request in requests {
                                     buffer.push_back(request);
                                 }
-                                this.current_backoff = Duration::from_secs(1);
                                 this.state = StreamState::Buffered(buffer);
                             }
                         }
                         Err(e) => {
-                            let next = this.next_backoff(this.current_backoff);
-                            this.current_backoff = next;
-                            this.state = StreamState::Delay(Delay::new(next));
+                            this.prev_count.store(0, Ordering::Relaxed);
+                            this.state = StreamState::Delay;
                             return Poll::Ready(Some(Err(e)));
                         }
                     },
@@ -157,11 +170,6 @@ impl Stream for PgPollFetcher<CompactType> {
 }
 
 impl<Compact> PgPollFetcher<Compact> {
-    fn next_backoff(&self, current: Duration) -> Duration {
-        let doubled = current * 2;
-        std::cmp::min(doubled, Duration::from_secs(60 * 5))
-    }
-
     #[allow(unused)]
     pub fn take_pending(&mut self) -> VecDeque<PgTask<Compact>> {
         match &mut self.state {
