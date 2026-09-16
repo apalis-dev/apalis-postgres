@@ -137,23 +137,28 @@
       },
       {
         "ordinal": 12,
-        "name": "metadata",
-        "type_info": "Jsonb",
-        "origin": {
-          "Table": {
-            "table": "apalis.jobs",
-            "name": "metadata"
-          }
-        }
-      },
-      {
-        "ordinal": 13,
         "name": "idempotency_key",
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "apalis.jobs",
             "name": "idempotency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "metadata",
+        "type_info": {
+          "Custom": {
+            "name": "hstore",
+            "kind": "Simple"
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "apalis.jobs",
+            "name": "metadata"
           }
         }
       }

@@ -1,24 +1,23 @@
-INSERT INTO
-    apalis.jobs (
-        id,
-        job_type,
-        job,
-        status,
-        attempts,
-        max_attempts,
-        run_at,
-        priority,
-        metadata,
-        idempotency_key
-    )
+INSERT INTO apalis.jobs (
+    id,
+    job_type,
+    job,
+    status,
+    attempts,
+    max_attempts,
+    run_at,
+    priority,
+    metadata,
+    idempotency_key
+)
 SELECT
-    unnest($1::text[]) as id,
-    $2::text as job_type,
-    unnest($3::bytea[]) as job,
-    'Pending' as status,
-    0 as attempts,
-    unnest($4::integer []) as max_attempts,
-    unnest($5::timestamptz []) as run_at,
-    unnest($6::integer []) as priority,
-    unnest($7::jsonb []) as metadata,
-    unnest($8::text []) as idempotency_key
+    unnest($1::text[]) AS id,
+    $2::text AS job_type,
+    unnest($3::bytea[]) AS job,
+    'Pending' AS status,
+    0 AS attempts,
+    unnest($4::integer[]) AS max_attempts,
+    to_timestamp(unnest($5::bigint[])) AS run_at,
+    unnest($6::integer[]) AS priority,
+    unnest($7::hstore[]) AS metadata,
+    unnest($8::text[]) AS idempotency_key

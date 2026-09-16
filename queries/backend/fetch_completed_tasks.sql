@@ -1,6 +1,7 @@
 SELECT
     id,
     status,
+    attempts as attempt, 
     last_result AS result
 FROM
     apalis.jobs

@@ -1,37 +1,34 @@
 use std::{collections::HashSet, str::FromStr, vec};
 
 use apalis_core::{
-    backend::{BackendExt, TaskResult, WaitForCompletion},
-    task::{status::Status, task_id::TaskId},
+    backend::{Backend, TaskResult, WaitForCompletion},
+    task::{
+        status::{Status, StatusError},
+        task_id::TaskId,
+    },
 };
 use futures::{StreamExt, stream::BoxStream};
 use serde::de::DeserializeOwned;
-use ulid::Ulid;
 
-use crate::{CompactType, PgContext, PostgresStorage};
+use crate::{PostgresStorage, error::Error};
 
 #[derive(Debug)]
 pub struct TaskResultRow {
     pub id: Option<String>,
     pub status: Option<String>,
     pub result: Option<serde_json::Value>,
+    pub attempt: Option<i32>,
 }
 
-impl<O: 'static + Send, Args, F, Decode> WaitForCompletion<O>
-    for PostgresStorage<Args, CompactType, Decode, F>
+impl<O: 'static + Send, Args> WaitForCompletion<O> for PostgresStorage<Args>
 where
-    PostgresStorage<Args, CompactType, Decode, F>:
-        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+    PostgresStorage<Args>: Backend<Error = Error>,
     Result<O, String>: DeserializeOwned,
 {
-    type ResultStream = BoxStream<'static, Result<TaskResult<O, Ulid>, Self::Error>>;
-    fn wait_for(
-        &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::IdType>>,
-    ) -> Self::ResultStream {
-        let pool = self.pool.clone();
+    type ResultStream = BoxStream<'static, Result<TaskResult<O>, Self::Error>>;
+    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream {
         let ids: HashSet<String> = task_ids.into_iter().map(|id| id.to_string()).collect();
-
+        let pool = self.persistence.pool.clone();
         let stream = futures::stream::unfold(ids, move |mut remaining_ids| {
             let pool = pool.clone();
             async move {
@@ -59,15 +56,14 @@ where
                 for row in rows {
                     let task_id = row.id.clone().unwrap();
                     remaining_ids.remove(&task_id);
-                    // Here we would normally decode the output O from the row
-                    // For simplicity, we assume O is String and the output is stored in row.output
                     let result: Result<O, String> =
                         serde_json::from_value(row.result.unwrap()).unwrap();
-                    results.push(Ok(TaskResult::new(
-                        TaskId::from_str(&task_id).ok()?,
-                        Status::from_str(&row.status.unwrap()).ok()?,
+                    results.push(Ok(TaskResult {
+                        task_id: TaskId::from_str(&task_id).ok()?,
+                        status: Status::from_str(&row.status.unwrap()).ok()?,
+                        attempt: row.attempt.unwrap_or_default() as usize,
                         result,
-                    )));
+                    }));
                 }
 
                 Some((futures::stream::iter(results), remaining_ids))
@@ -79,13 +75,13 @@ where
     // Implementation of check_status
     fn check_status(
         &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::IdType>> + Send,
-    ) -> impl Future<Output = Result<Vec<TaskResult<O, Ulid>>, Self::Error>> + Send {
-        let pool = self.pool.clone();
+        task_ids: impl IntoIterator<Item = TaskId> + Send,
+    ) -> impl Future<Output = Result<Vec<TaskResult<O>>, Self::Error>> + Send {
+        let pool = self.persistence.pool.clone();
         let ids: Vec<String> = task_ids.into_iter().map(|id| id.to_string()).collect();
 
         async move {
-            let ids = serde_json::to_value(&ids).unwrap();
+            let ids = serde_json::to_value(&ids).map_err(Error::JsonError)?;
             let rows = sqlx::query_file_as!(
                 TaskResultRow,
                 "queries/backend/fetch_completed_tasks.sql",
@@ -96,20 +92,21 @@ where
 
             let mut results = Vec::new();
             for row in rows {
-                let task_id = TaskId::from_str(&row.id.unwrap())
-                    .map_err(|_| sqlx::Error::Protocol("Invalid task ID".into()))?;
+                let task_id = TaskId::from_str(&row.id.unwrap()).map_err(Error::TaskIdError)?;
 
-                let result: Result<O, String> = serde_json::from_value(row.result.unwrap())
-                    .map_err(|_| sqlx::Error::Protocol("Failed to decode result".into()))?;
+                let result: Result<O, String> =
+                    serde_json::from_value(row.result.unwrap()).map_err(Error::JsonError)?;
 
-                results.push(TaskResult::new(
+                results.push(TaskResult {
                     task_id,
-                    row.status
+                    status: row
+                        .status
                         .unwrap()
                         .parse()
-                        .map_err(|_| sqlx::Error::Protocol("Invalid status value".into()))?,
+                        .map_err(|e: StatusError| Error::StatusError(e))?,
                     result,
-                ));
+                    attempt: 0, // attempt: row.attempt.unwrap_or_default() as usize,
+                });
             }
 
             Ok(results)

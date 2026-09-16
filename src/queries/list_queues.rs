@@ -1,16 +1,14 @@
-use apalis_core::backend::{BackendExt, ListQueues, QueueInfo};
+use apalis_core::backend::{Backend, ListQueues, QueueInfo};
 use serde_json::Value;
-use ulid::Ulid;
 
-use crate::{CompactType, PgContext, PostgresStorage};
+use crate::{PostgresStorage, error::Error};
 
-impl<Args, D, F> ListQueues for PostgresStorage<Args, CompactType, D, F>
+impl<Args> ListQueues for PostgresStorage<Args>
 where
-    PostgresStorage<Args, CompactType, D, F>:
-        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+    PostgresStorage<Args>: Backend<Error = Error>,
 {
     fn list_queues(&self) -> impl Future<Output = Result<Vec<QueueInfo>, Self::Error>> + Send {
-        let pool = self.pool.clone();
+        let pool = self.persistence.pool.clone();
         struct QueueInfoRow {
             pub name: Option<String>,
             pub stats: Option<Value>,

@@ -2,3 +2,5 @@
 create-schemas = ["apalis"]
 table-name = "apalis._sqlx_migrations"
 
+[macros.type-overrides]
+'TIMESTAMPTZ' = 'crate::timestamp::Timestamp'

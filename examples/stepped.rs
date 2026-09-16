@@ -1,19 +1,20 @@
 use std::time::Duration;
 
 use apalis::prelude::*;
-use apalis_postgres::*;
-use apalis_workflow::*;
+use apalis_postgres::{Config, PgPool, PgTaskId, PostgresStorage};
+use apalis_workflow::SteppedFlow;
 
 #[tokio::main]
 async fn main() {
-    let workflow = Workflow::new("odd-numbers-workflow")
+    let workflow = SteppedFlow::new("odd-numbers-workflow")
         .and_then(|a: usize| async move { Ok::<_, BoxDynError>((0..=a).collect::<Vec<_>>()) })
+        .delay_for(Duration::from_secs(5))
         .filter_map(|x| async move { if x % 2 != 0 { Some(x) } else { None } })
         .delay_for(Duration::from_millis(1000))
         .and_then(
-            |a: Vec<usize>, ctx: WorkerContext, task_id: PgTaskId| async move {
+            |a: Vec<usize>, wrk: WorkerContext, task_id: PgTaskId| async move {
                 println!("Sum: {}", a.iter().sum::<usize>());
-                ctx.stop().unwrap();
+                wrk.stop().unwrap();
                 println!("Completed Task ID: {}", task_id);
                 Ok::<(), BoxDynError>(())
             },
@@ -23,9 +24,13 @@ async fn main() {
         .await
         .unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
-    let mut backend = PostgresStorage::new_with_config(&pool, &Config::new("test-workflow"));
+    let config = Config::default().queue("test-workflow");
+    let mut backend = PostgresStorage::new(&pool)
+        .with_config(config)
+        .with_pubsub()
+        .poll_with_interval(Duration::from_secs(1));
 
-    backend.push_start(100usize).await.unwrap();
+    backend.push(10usize).await.unwrap();
 
     let worker = WorkerBuilder::new("rango-tango")
         .backend(backend)
