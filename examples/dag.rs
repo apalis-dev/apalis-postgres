@@ -1,5 +1,7 @@
+use std::time::Duration;
+
 use apalis::prelude::*;
-use apalis_postgres::*;
+use apalis_postgres::{Config, *};
 use apalis_workflow::*;
 
 async fn get_name(user_id: u32) -> Result<String, BoxDynError> {
@@ -25,12 +27,12 @@ async fn collector(
 
 #[tokio::main]
 async fn main() {
-    let dag_flow = DagFlow::new("user-etl-workflow");
-    let get_name = dag_flow.node(get_name);
-    let get_age = dag_flow.node(get_age);
-    let get_address = dag_flow.node(get_address);
+    let dag_flow = GraphFlow::new("user-etl-workflow");
+    let get_name = dag_flow.add_task(get_name);
+    let get_age = dag_flow.add_task(get_age);
+    let get_address = dag_flow.add_task(get_address);
     dag_flow
-        .node(collector)
+        .add_task(collector)
         .depends_on((&get_name, &get_age, &get_address)); // Order and types matters here
 
     dag_flow.validate().unwrap();
@@ -41,9 +43,14 @@ async fn main() {
         .await
         .unwrap();
     PostgresStorage::setup(&pool).await.unwrap();
-    let mut backend = PostgresStorage::new_with_config(&pool, &Config::new("test-workflow"));
 
-    backend.push_start(vec![42u32, 43, 44]).await.unwrap();
+    let config = Config::default().queue("test-workflow");
+    let mut backend = PostgresStorage::new(&pool)
+        .with_config(config)
+        .with_pubsub()
+        .poll_with_interval(Duration::from_secs(1)); // Wake the worker once a second if its sleeping
+
+    backend.start_fan_out(vec![42u32, 43, 44]).await.unwrap();
 
     let worker = WorkerBuilder::new("rango-tango")
         .backend(backend)

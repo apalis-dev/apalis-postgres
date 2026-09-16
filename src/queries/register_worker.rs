@@ -1,29 +1,33 @@
 use apalis_core::worker::context::WorkerContext;
-use apalis_sql::DateTime;
-use sqlx::PgPool;
+use sqlx::Executor;
 
-pub async fn register(
-    pool: PgPool,
-    worker_type: String,
-    worker: WorkerContext,
-    last_seen: DateTime,
+use crate::{error::Error, timestamp::Timestamp};
+
+/// Register a worker in the database
+///
+/// Errors if worker already exists
+pub async fn register_worker<E>(
+    conn: &mut E,
+    queue: &str,
+    worker: &WorkerContext,
+    last_seen: &Timestamp,
     backend_type: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), Error>
+where
+    for<'e> &'e mut E: Executor<'e, Database = sqlx::Postgres>,
+{
     let res = sqlx::query_file!(
         "queries/worker/register.sql",
         worker.name(),
-        worker_type,
+        queue,
         backend_type,
         worker.get_service(),
         last_seen
     )
-    .execute(&pool)
+    .execute(conn)
     .await?;
     if res.rows_affected() == 0 {
-        return Err(sqlx::Error::Io(std::io::Error::new(
-            std::io::ErrorKind::AddrInUse,
-            "WORKER_ALREADY_EXISTS",
-        )));
+        return Err(Error::WorkerAlreadyExists(worker.name().to_owned()));
     }
     Ok(())
 }

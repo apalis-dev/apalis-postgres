@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [1.0.0-rc.9] - 2026-09-17
 
 - fix: confine apalis's objects to the `apalis` schema (#86):
   - `generate_ulid` is now `apalis.generate_ulid` and no longer depends on `pgcrypto` — its random bytes come from core `gen_random_uuid()`. The sole caller (`apalis.push_job`) is repointed and the `public.generate_ulid` copy is dropped (via a new forward migration; existing migrations are not rewritten).

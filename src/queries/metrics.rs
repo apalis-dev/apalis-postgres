@@ -1,7 +1,8 @@
-use apalis_core::backend::{BackendExt, Metrics, Statistic};
-use ulid::Ulid;
+use std::str::FromStr;
 
-use crate::{CompactType, PgContext, PostgresStorage};
+use apalis_core::backend::{Backend, Metrics, StatType, Statistic};
+
+use crate::{PostgresStorage, error::Error};
 
 struct StatisticRow {
     priority: Option<i32>,
@@ -10,13 +11,12 @@ struct StatisticRow {
     value: Option<f32>,
 }
 
-impl<Args, D, F> Metrics for PostgresStorage<Args, CompactType, D, F>
+impl<Args> Metrics for PostgresStorage<Args>
 where
-    PostgresStorage<Args, CompactType, D, F>:
-        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+    PostgresStorage<Args>: Backend<Error = Error>,
 {
     fn global(&self) -> impl Future<Output = Result<Vec<Statistic>, Self::Error>> + Send {
-        let pool = self.pool.clone();
+        let pool = self.persistence.pool.clone();
 
         async move {
             let rec = sqlx::query_file_as!(StatisticRow, "queries/backend/overview.sql")
@@ -25,7 +25,8 @@ where
                 .into_iter()
                 .map(|r| Statistic {
                     priority: Some(r.priority.unwrap_or_default() as u64),
-                    stat_type: apalis_sql::stat_type_from_string(&r.r#type.unwrap_or_default()),
+                    stat_type: StatType::from_str(&r.r#type.unwrap_or_default())
+                        .unwrap_or_default(),
                     title: r.statistic.unwrap_or_default(),
                     value: r.value.unwrap_or_default().to_string(),
                 })
@@ -34,8 +35,8 @@ where
         }
     }
     fn fetch_by_queue(&self) -> impl Future<Output = Result<Vec<Statistic>, Self::Error>> + Send {
-        let pool = self.pool.clone();
-        let queue_id = self.config.queue().to_string();
+        let pool = self.persistence.pool.clone();
+        let queue_id = self.persistence.config.queue.to_string();
         async move {
             let rec = sqlx::query_file_as!(
                 StatisticRow,
@@ -47,7 +48,7 @@ where
             .into_iter()
             .map(|r| Statistic {
                 priority: Some(r.priority.unwrap_or_default() as u64),
-                stat_type: apalis_sql::stat_type_from_string(&r.r#type.unwrap_or_default()),
+                stat_type: StatType::from_str(&r.r#type.unwrap_or_default()).unwrap_or_default(),
                 title: r.statistic.unwrap_or_default(),
                 value: r.value.unwrap_or_default().to_string(),
             })

@@ -1,7 +1,8 @@
-use apalis_core::backend::{BackendExt, ListWorkers, RunningWorker};
-use apalis_sql::{DateTime, DateTimeExt};
+use apalis_core::backend::{Backend, ListWorkers, RunningWorker};
+
 use futures::TryFutureExt;
-use ulid::Ulid;
+
+use crate::{PostgresStorage, error::Error, timestamp::Timestamp};
 
 #[derive(Debug)]
 pub struct WorkerRow {
@@ -9,21 +10,18 @@ pub struct WorkerRow {
     pub worker_type: String,
     pub storage_name: String,
     pub layers: Option<String>,
-    pub last_seen: DateTime,
-    pub started_at: Option<DateTime>,
+    pub last_seen: Timestamp,
+    pub started_at: Option<Timestamp>,
 }
 
-use crate::{CompactType, PgContext, PostgresStorage};
-
-impl<Args: Sync, D, F> ListWorkers for PostgresStorage<Args, CompactType, D, F>
+impl<Args: Sync> ListWorkers for PostgresStorage<Args>
 where
-    PostgresStorage<Args, CompactType, D, F>:
-        BackendExt<Context = PgContext, Compact = CompactType, IdType = Ulid, Error = sqlx::Error>,
+    PostgresStorage<Args>: Backend<Error = Error>,
 {
     fn list_workers(&self) -> impl Future<Output = Result<Vec<RunningWorker>, Self::Error>> + Send {
-        let queue = self.config.queue().to_string();
+        let queue = self.persistence.config.queue.to_string();
 
-        let pool = self.pool.clone();
+        let pool = self.persistence.pool.clone();
         let limit = 100;
         let offset = 0;
         async move {
@@ -40,11 +38,8 @@ where
                     .map(|w| RunningWorker {
                         id: w.id,
                         backend: w.storage_name,
-                        started_at: w
-                            .started_at
-                            .map(|t| t.to_unix_timestamp())
-                            .unwrap_or_default() as u64,
-                        last_heartbeat: w.last_seen.to_unix_timestamp() as u64,
+                        started_at: w.started_at.unwrap_or_default().0,
+                        last_heartbeat: w.last_seen.0,
                         layers: w.layers.unwrap_or_default(),
                         queue: w.worker_type,
                     })
@@ -58,7 +53,7 @@ where
     fn list_all_workers(
         &self,
     ) -> impl Future<Output = Result<Vec<RunningWorker>, Self::Error>> + Send {
-        let pool = self.pool.clone();
+        let pool = self.persistence.pool.clone();
         let limit = 100;
         let offset = 0;
         async move {
@@ -74,11 +69,8 @@ where
                     .map(|w| RunningWorker {
                         id: w.id,
                         backend: w.storage_name,
-                        started_at: w
-                            .started_at
-                            .map(|t| t.to_unix_timestamp())
-                            .unwrap_or_default() as u64,
-                        last_heartbeat: w.last_seen.to_unix_timestamp() as u64,
+                        started_at: w.started_at.unwrap_or_default().0,
+                        last_heartbeat: w.last_seen.0,
                         layers: w.layers.unwrap_or_default(),
                         queue: w.worker_type,
                     })

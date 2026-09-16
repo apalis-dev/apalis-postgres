@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE apalis.workers w\nSET last_seen = NOW()\nWHERE\n    w.id = $1\n    AND w.worker_type = $2\n    AND (\n        SELECT COUNT(*)\n        FROM apalis.jobs j\n        WHERE j.lock_by = w.id\n          AND j.id = ANY($3::text[])\n    ) = cardinality($3::text[]);\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75a941c14fe29a7d1a4d64d70ca39dacfbc047c8051eafbd521a6a9d7845dfda"
+}

@@ -77,14 +77,19 @@
       },
       {
         "ordinal": 12,
-        "name": "metadata",
-        "type_info": "Jsonb",
+        "name": "idempotency_key",
+        "type_info": "Text",
         "origin": "Expression"
       },
       {
         "ordinal": 13,
-        "name": "idempotency_key",
-        "type_info": "Text",
+        "name": "metadata",
+        "type_info": {
+          "Custom": {
+            "name": "hstore",
+            "kind": "Simple"
+          }
+        },
         "origin": "Expression"
       }
     ],

@@ -14,4 +14,4 @@ WHERE
         )
     )
     AND run_at < now()
-    AND id = ANY($1) RETURNING *;
+    AND id = ANY($1);
