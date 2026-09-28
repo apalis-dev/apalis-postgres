@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- deps(deps): bump thiserror from 2.0.20 to 2.0.21 ([#117](https://github.com/apalis-dev/apalis-postgres/pull/117))
 ## [1.0.0-rc.9] - 2026-09-17
 
 - fix: confine apalis's objects to the `apalis` schema (#86):
