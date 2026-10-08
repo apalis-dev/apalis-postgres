@@ -8,4 +8,4 @@ WHERE
         FROM apalis.jobs j
         WHERE j.lock_by = w.id
           AND j.id = ANY($3::text[])
-    ) = cardinality($3::text[]);
+    ) = cardinality($3::text[]); 

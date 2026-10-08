@@ -18,7 +18,7 @@ pub enum Error {
         abandoned: usize,
     },
     /// Error decoding the task_id
-    #[error("TaskIdError: {0}")]
+    #[error("TaskId Error: {0}")]
     TaskIdError(TaskIdError),
     /// Error decoding the task status
     #[error("StatusError: {0}")]
@@ -30,4 +30,16 @@ pub enum Error {
     /// Tried to register a worker that already exists
     #[error("WorkerAlreadyExists: {0}")]
     WorkerAlreadyExists(String),
+
+    #[error(
+        "UpgradeRequired: Current version {current}, Required version {required}. \n Link: {link:?}"
+    )]
+    UpgradeRequired {
+        /// The current version of the migrations in the database
+        current: String,
+        /// The required version of the migrations in the database
+        required: String,
+        /// Optional link to the migration guide
+        link: Option<String>,
+    },
 }

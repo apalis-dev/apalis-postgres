@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.10] - 2026-10-08
+
+- bump: to rc.10 compatible with apalis-core@1.0.0-rc.11
 - deps(deps): bump thiserror from 2.0.20 to 2.0.21 ([#117](https://github.com/apalis-dev/apalis-postgres/pull/117))
 - ci(deps): bump actions/stale from 10 to 11 ([#108](https://github.com/apalis-dev/apalis-postgres/pull/108))
 - ci(deps): bump cargo-bins/cargo-binstall from 1.19.1 to 1.23.0 ([#114](https://github.com/apalis-dev/apalis-postgres/pull/114))
@@ -54,10 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0-beta.3] - 2025-12-06
 
-- fix: correct allowSelfAssign param as bool (#25) 
+- fix: correct allowSelfAssign param as bool (#25)
 - fix: ensure automated release (#27)
 - fix: ensure workflow_call (#28)
-
 
 ## [0.7.1] - 2025-03-17
 
@@ -70,31 +72,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Generic retry persist check (#498)
 - Add associated types to the `Backend` trait (#516)
+
 ## [0.6.4] - 2024-12-03
 
 ### 🐛 Bug Fixes
 
 - Allow polling only when worker is ready (#472)
+
 ## [0.5.5] - 2024-05-20
 
 ### 🐛 Bug Fixes
 
 - Wrong timestamp type for pg (#321)
+
 ## [0.4.9] - 2024-01-03
 
 ### 🚀 Features
 
 - Configurable worker set as dead (#220)
+
 ## [0.4.7] - 2023-11-15
 
 ### 🐛 Bug Fixes
 
 - Allow cargo build --all-features (#204)
+
 ## [0.4.5] - 2023-10-08
 
 ### 💼 Other
 
 - Api to get migrations
+
 ## [0.4.4] - 2023-07-31
 
 ### 🐛 Bug Fixes
@@ -104,4 +112,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 💼 Other
 
 - Sqlx to v0.7
+
 ## [0.3.0] - 2022-06-05
