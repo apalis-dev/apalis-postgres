@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- deps(deps): bump thiserror from 2.0.20 to 2.0.21 ([#117](https://github.com/apalis-dev/apalis-postgres/pull/117))
 - ci(deps): bump actions/stale from 10 to 11 ([#108](https://github.com/apalis-dev/apalis-postgres/pull/108))
 - ci(deps): bump cargo-bins/cargo-binstall from 1.19.1 to 1.23.0 ([#114](https://github.com/apalis-dev/apalis-postgres/pull/114))
 
