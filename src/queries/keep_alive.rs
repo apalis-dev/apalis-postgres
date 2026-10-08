@@ -9,9 +9,9 @@ where
     for<'e> &'e mut E: Executor<'e, Database = sqlx::Postgres>,
 {
     let tasks = worker
-        .tasks()
+        .tasks()?
         .iter()
-        .map(|task| task.task_id().to_string())
+        .map(|task| task.task_id().to_owned())
         .collect::<Vec<_>>();
 
     let worker = worker.name();

@@ -19,9 +19,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "apalis"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc96f8162b465147c3bbf0fe27b3803d468456823d1e2e5db17a3cc9206f1ccc"
+checksum = "0999b56c5cdf510f4bbc65dbf236bc196e16a52d42fee6ca9ce58484db6fecd1"
 dependencies = [
  "apalis-core",
  "futures-util",
@@ -34,9 +34,9 @@ dependencies = [
 
 [[package]]
 name = "apalis-codec"
-version = "0.1.0-rc.10"
+version = "0.1.0-rc.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81f5cac07535fe1fd62ed316a2068c0efd886f41c2b1bf326f5d0d774fa523a3"
+checksum = "6256b897e40ba6c99f137a331ff8af7811ff5a2fe5439c337b26df68e970f561"
 dependencies = [
  "apalis-core",
  "serde",
@@ -45,9 +45,9 @@ dependencies = [
 
 [[package]]
 name = "apalis-core"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "736bb41e6475dafb9489fe67302f787381d5a511dbfa039cfe69e585bda6956a"
+checksum = "f495fd1d64babf4d77d7f9caa167d0c807e3213af3e0513b8d42d07e6b4e3b88"
 dependencies = [
  "dashmap",
  "futures-channel",
@@ -92,9 +92,9 @@ dependencies = [
 
 [[package]]
 name = "apalis-workflow"
-version = "0.1.0-rc.10"
+version = "0.1.0-rc.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "018253861e1cc1c9ec33d7b89bcfc60b38588d653aaab85555b122184cae5faa"
+checksum = "1622bd2b7cac4617b075007a27839d38efb10cf3acb4ec53edefd7dcc68ef97e"
 dependencies = [
  "apalis-codec",
  "apalis-core",
@@ -1881,18 +1881,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2177,9 +2177,9 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "uuid"
-version = "1.26.1"
+version = "1.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
+checksum = "97277d36b9c3ace13e58fa6e753f8b0bbbf302a18dd193240d70f9e29681059a"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",

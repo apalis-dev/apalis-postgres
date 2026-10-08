@@ -1,4 +1,4 @@
-use apalis_core::task::{status::StatusError, task_id::TaskIdError};
+use apalis_core::task::{context::TaskStateError, status::StatusError, task_id::TaskIdError};
 use sqlx::Error as SqlxError;
 /// Represents a wrapper for errors encountered on this crate
 #[derive(Debug, thiserror::Error)]
@@ -9,6 +9,9 @@ pub enum Error {
     /// Error handling json
     #[error("JsonError: {0}")]
     JsonError(serde_json::Error),
+    /// Error reading the worker's running tasks
+    #[error("TaskStateError: {0}")]
+    TaskState(#[from] TaskStateError),
     /// Reenqueue Mismatch error
     #[error("ReenqueueMismatch: Queued [{queued}] , Abandoned[{abandoned}] ")]
     ReenqueueMismatch {
