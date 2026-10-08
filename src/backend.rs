@@ -103,10 +103,21 @@ impl PostgresStorage<()> {
     /// Returns an error if the migrations cannot be applied to the database.
     #[cfg(feature = "migrate")]
     pub async fn setup(pool: &PgPool) -> Result<(), Error> {
-        Self::migrations()
-            .run(pool)
-            .await
-            .map_err(sqlx::Error::from)?;
+        Self::migrations().run(pool).await.map_err(|r| {
+            use sqlx::migrate::MigrateError::VersionMismatch;
+
+            if let VersionMismatch(20220530084123) = r {
+                Error::UpgradeRequired {
+                    current: "0.7.4".into(),
+                    required: "1.0.0".into(),
+                    link: Some(
+                        "https://github.com/apalis-dev/apalis-postgres#upgrading-to-10".into(),
+                    ),
+                }
+            } else {
+                Error::Database(r.into())
+            }
+        })?;
         Ok(())
     }
 
