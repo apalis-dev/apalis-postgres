@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- ci(deps): bump cargo-bins/cargo-binstall from 1.19.1 to 1.23.0 ([#114](https://github.com/apalis-dev/apalis-postgres/pull/114))
 ## [1.0.0-rc.9] - 2026-09-17
 
 - fix: confine apalis's objects to the `apalis` schema (#86):
