@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0-rc.10] - 2026-10-08
 
-- bump: introducing rc.10
+- bump: to rc.10 compatible with apalis-core@1.0.0-rc.11
+- deps(deps): bump thiserror from 2.0.20 to 2.0.21 ([#117](https://github.com/apalis-dev/apalis-postgres/pull/117))
+- ci(deps): bump actions/stale from 10 to 11 ([#108](https://github.com/apalis-dev/apalis-postgres/pull/108))
+- ci(deps): bump cargo-bins/cargo-binstall from 1.19.1 to 1.23.0 ([#114](https://github.com/apalis-dev/apalis-postgres/pull/114))
 
 ## [1.0.0-rc.9] - 2026-09-17
 
