@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-12
+
+- bump: to v.1.0.0
+
 ## [1.0.0-rc.10] - 2026-10-08
 
 - bump: to rc.10 compatible with apalis-core@1.0.0-rc.11
