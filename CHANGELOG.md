@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- deps(deps): bump tokio from 1.53.2 to 1.53.3 ([#123](https://github.com/apalis-dev/apalis-postgres/pull/123))
 ## [1.0.0] - 2026-10-12
 
 - bump: to v.1.0.0
