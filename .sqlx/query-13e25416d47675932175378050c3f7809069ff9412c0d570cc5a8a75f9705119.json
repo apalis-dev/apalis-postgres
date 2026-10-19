@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH stats AS (\n    SELECT\n        job_type,\n        COUNT(*) FILTER (WHERE status = 'Running') AS running_jobs,\n        COUNT(*) FILTER (WHERE status = 'Pending') AS pending_jobs,\n        COUNT(*) FILTER (WHERE status = 'Failed') AS failed_jobs,\n        COUNT(*) FILTER (WHERE status = 'Done') AS done_jobs,\n        COUNT(*) FILTER (WHERE status = 'Killed') AS killed_jobs,\n        COUNT(*) FILTER (WHERE status IN ('Pending', 'Queued', 'Running')) AS active_jobs,\n        SUM(CASE WHEN status = 'Running' AND run_at < now() - INTERVAL '1 hour' THEN 1 END) AS stale_running_jobs,\n        SUM(CASE WHEN run_at >= now() - INTERVAL '1 hour' THEN 1 END) AS jobs_past_hour,\n        SUM(CASE WHEN run_at::date = CURRENT_DATE THEN 1 END) AS jobs_today,\n        SUM(CASE WHEN run_at::date = CURRENT_DATE AND status = 'Killed' THEN 1 END) AS killed_jobs_today,\n        SUM(CASE WHEN run_at >= now() - INTERVAL '7 days' THEN 1 END) AS jobs_past_7_days,\n        ROUND(\n            AVG(EXTRACT(EPOCH FROM (done_at - run_at)) / 60.0)\n                FILTER (WHERE status IN ('Done', 'Failed', 'Killed') AND done_at IS NOT NULL),\n            2\n        ) AS avg_job_duration_mins,\n        MAX(CASE WHEN status = 'Running' THEN EXTRACT(EPOCH FROM now() - run_at) / 60.0 ELSE 0 END) AS longest_running_job_mins,\n        COUNT(*) AS total_jobs,\n        MAX(run_at) AS most_recent_job\n    FROM apalis.jobs\n    GROUP BY job_type\n),\nactivity AS (\n    SELECT\n        job_type,\n        jsonb_agg(daily_count ORDER BY run_date) AS activity\n    FROM (\n        SELECT\n            job_type,\n            run_at::date AS run_date,\n            COUNT(*) AS daily_count\n        FROM apalis.jobs\n        WHERE run_at >= now() - INTERVAL '7 days'\n        GROUP BY job_type, run_at::date\n    ) daily\n    GROUP BY job_type\n),\nlockers AS (\n    SELECT\n        job_type,\n        jsonb_agg(DISTINCT lock_by) AS workers\n    FROM apalis.jobs\n    WHERE lock_by IS NOT NULL\n    GROUP BY job_type\n),\nqueue_stats AS (\n    SELECT\n        s.job_type,\n        jsonb_agg(\n            jsonb_build_object(\n                'title', t.statistic,\n                'stat_type', t.type,\n                'value', t.value,\n                'priority', t.priority\n            ) ORDER BY t.priority, t.statistic\n        ) FILTER (WHERE t.value IS NOT NULL) AS stats\n    FROM stats s\n    CROSS JOIN LATERAL (VALUES\n        (1, 'Number', 'RUNNING_JOBS', s.running_jobs::text),\n        (1, 'Number', 'PENDING_JOBS', s.pending_jobs::text),\n        (1, 'Number', 'FAILED_JOBS', s.failed_jobs::text),\n        (2, 'Number', 'ACTIVE_JOBS', s.active_jobs::text),\n        (2, 'Number', 'STALE_RUNNING_JOBS', s.stale_running_jobs::text),\n        (2, 'Percentage', 'KILL_RATE',\n            ROUND(100.0 * s.killed_jobs / NULLIF(s.total_jobs, 0), 2)::text),\n        (3, 'Number', 'JOBS_PAST_HOUR', s.jobs_past_hour::text),\n        (3, 'Number', 'JOBS_TODAY', s.jobs_today::text),\n        (3, 'Number', 'KILLED_JOBS_TODAY',\n            CASE WHEN s.jobs_today IS NOT NULL THEN COALESCE(s.killed_jobs_today, 0)::text END),\n        (3, 'Decimal', 'AVG_JOBS_PER_MINUTE_PAST_HOUR',\n            CASE WHEN s.jobs_past_hour IS NOT NULL\n                THEN ROUND(s.jobs_past_hour / 60.0, 2)::text END),\n        (4, 'Number', 'TOTAL_JOBS', s.total_jobs::text),\n        (4, 'Number', 'DONE_JOBS', s.done_jobs::text),\n        (4, 'Number', 'KILLED_JOBS', s.killed_jobs::text),\n        (4, 'Percentage', 'SUCCESS_RATE',\n            ROUND(100.0 * s.done_jobs / NULLIF(s.total_jobs, 0), 2)::text),\n        (5, 'Decimal', 'AVG_JOB_DURATION_MINS', s.avg_job_duration_mins::text),\n        (5, 'Decimal', 'LONGEST_RUNNING_JOB_MINS', ROUND(s.longest_running_job_mins, 2)::text),\n        (6, 'Number', 'JOBS_PAST_7_DAYS', s.jobs_past_7_days::text),\n        (8, 'Timestamp', 'MOST_RECENT_JOB', s.most_recent_job::text)\n    ) AS t(priority, type, statistic, value)\n    GROUP BY s.job_type\n),\nall_job_types AS (\n    SELECT worker_type AS job_type\n    FROM apalis.workers\n    UNION\n    SELECT job_type\n    FROM stats\n)\nSELECT\n    jt.job_type as \"name!\",\n    COALESCE(qs.stats, '[]'::jsonb) as \"stats!\",\n    COALESCE(lk.workers, '[]'::jsonb) as \"workers!\",\n    COALESCE(a.activity, '[]'::jsonb) as \"activity!\"\nFROM all_job_types jt\nLEFT JOIN queue_stats qs ON jt.job_type = qs.job_type\nLEFT JOIN lockers lk ON jt.job_type = lk.job_type\nLEFT JOIN activity a ON jt.job_type = a.job_type\nORDER BY jt.job_type;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "stats!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "workers!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "activity!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "13e25416d47675932175378050c3f7809069ff9412c0d570cc5a8a75f9705119"
+}

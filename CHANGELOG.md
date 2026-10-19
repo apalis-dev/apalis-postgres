@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- perf: compute the queue statistics in a single pass over `apalis.jobs` instead of 18 `UNION ALL` aggregate branches, and drop the per-queue correlated subqueries for the workers and the activity ([#120](https://github.com/apalis-dev/apalis-postgres/issues/120))
+- perf: add `idx_apalis_jobs_status_type_recent` and `idx_apalis_jobs_status_recent` so listing recent tasks no longer sorts the whole table ([#120](https://github.com/apalis-dev/apalis-postgres/issues/120))
+
 ## [1.0.0] - 2026-10-12
 
 - bump: to v.1.0.0
