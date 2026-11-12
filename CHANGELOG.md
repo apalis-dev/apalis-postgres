@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0](https://github.com/apalis-dev/apalis-postgres/releases/tag/v1.1.0)
+
 - *ci(deps)*: bump cargo-bins/cargo-binstall from 1.23.0 to 1.26.2 ([#122](https://github.com/apalis-dev/apalis-postgres/pull/122))
 - chore: add auto-release and auto-changelog scripts ([#124](https://github.com/apalis-dev/apalis-postgres/pull/124))
 - perf: compute the queue statistics in a single pass over `apalis.jobs` instead of 18 `UNION ALL` aggregate branches, and drop the per-queue correlated subqueries for the workers and the activity ([#120](https://github.com/apalis-dev/apalis-postgres/issues/120))
