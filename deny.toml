@@ -35,7 +35,6 @@ skip-tree = [
     { name = "getrandom" },
     { name = "hashbrown" },
     { name = "rand" },
-    { name = "async-channel" },
     { name = "rand_core" },
     { name = "redox_syscall" },
     { name = "event-listener" },
