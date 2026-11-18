@@ -276,4 +276,43 @@ mod tests {
         assert!(info.activity.iter().sum::<usize>() >= 1);
         assert!(info.workers.is_empty());
     }
+
+    #[tokio::test]
+    async fn metrics_report_timestamps_to_the_second() {
+        use apalis_core::backend::{Metrics, TaskSink};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let pool = PgPool::connect(env::var("DATABASE_URL").unwrap().as_str())
+            .await
+            .unwrap();
+        let queue = format!("metrics-{}", ulid::Ulid::generate());
+        let mut backend = PostgresStorage::new(&pool)
+            .with_config(Config::default().queue(queue.clone()))
+            .with_pubsub();
+
+        // An f32 holds today's unix time only to the nearest 128 seconds,
+        // so pick a time that is not a multiple of 128.
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let run_at = (now - 1000) / 128 * 128 + 37;
+        backend
+            .push_task(TaskBuilder::new(42u32).run_at_timestamp(run_at).build())
+            .await
+            .unwrap();
+
+        let stats = backend.fetch_by_queue().await.unwrap();
+        let stat = |title: &str| {
+            stats
+                .iter()
+                .find(|stat| stat.title == title)
+                .unwrap_or_else(|| panic!("{title} is reported"))
+                .value
+                .clone()
+        };
+
+        assert_eq!(stat("MOST_RECENT_JOB"), run_at.to_string());
+        assert_eq!(stat("OLDEST_PENDING_JOB"), run_at.to_string());
+    }
 }
