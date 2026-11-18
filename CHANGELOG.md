@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: report metrics as `DOUBLE PRECISION` instead of `REAL` (float4), which rounded `MOST_RECENT_JOB` / `OLDEST_PENDING_JOB` to 128 seconds ([#129](https://github.com/apalis-dev/apalis-postgres/pull/129))
+
 ## [1.1.0](https://github.com/apalis-dev/apalis-postgres/releases/tag/v1.1.0)
 
 - *ci(deps)*: bump cargo-bins/cargo-binstall from 1.23.0 to 1.26.2 ([#122](https://github.com/apalis-dev/apalis-postgres/pull/122))

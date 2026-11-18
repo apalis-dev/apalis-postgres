@@ -8,7 +8,7 @@ struct StatisticRow {
     priority: Option<i32>,
     r#type: Option<String>,
     statistic: Option<String>,
-    value: Option<f32>,
+    value: Option<f64>,
 }
 
 impl<Args> Metrics for PostgresStorage<Args>
