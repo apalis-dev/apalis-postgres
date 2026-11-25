@@ -15,6 +15,7 @@ mod wait_for;
 pub use crate::queries::{
     fetch_next::fetch_next, handle_result::Payload as ResultPayload, handle_result::handle_results,
     keep_alive::keep_alive, lock_task::lock_tasks, reenqueue_orphaned::reenqueue_abandoned,
-    reenqueue_orphaned::reenqueue_orphaned, register_worker::register_worker,
+    reenqueue_orphaned::reenqueue_orphaned, reenqueue_orphaned::reenqueue_reregistered,
+    register_worker::register_worker,
 };
 pub use crate::sink::push_tasks;

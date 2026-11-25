@@ -15,7 +15,8 @@ use crate::{
     config::Config,
     error::Error,
     queries::{
-        self, fetch_next, keep_alive, reenqueue_abandoned, reenqueue_orphaned, register_worker,
+        self, fetch_next, keep_alive, reenqueue_abandoned, reenqueue_orphaned,
+        reenqueue_reregistered, register_worker,
     },
     sink::push_tasks,
     timestamp::Timestamp,
@@ -41,10 +42,19 @@ impl Persistence for SqlxPersistence {
             .unwrap()
             .as_secs();
         register_worker(&mut *tx, queue, worker, &Timestamp(now), "PgStorage").await?;
+        // A worker restarted within the orphan timeout refreshes its name's `last_seen`, so the
+        // sweep above never treats the previous run's tasks as orphaned.
+        let reregistered = reenqueue_reregistered(&mut *tx, queue, worker.name()).await?;
         tx.commit().await?;
         if count > 0 {
             tracing::debug!(
                 "{count} Re-enqueued orphaned tasks by worker {}",
+                worker.name()
+            );
+        }
+        if reregistered > 0 {
+            tracing::debug!(
+                "Re-enqueued {reregistered} tasks left by a previous run of worker {}",
                 worker.name()
             );
         }
