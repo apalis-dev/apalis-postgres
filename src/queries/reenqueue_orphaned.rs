@@ -55,3 +55,25 @@ where
     .await?;
     Ok(res)
 }
+
+/// Re-enqueues tasks still locked by a previous run of a worker that is registering again
+///
+/// A registering worker isn't running any tasks yet, so any task locked under its name was
+/// abandoned by an earlier run. Call this only after [`register_worker`](super::register_worker)
+/// succeeds. This assumes no other live worker uses the same name: `register_worker`'s advisory
+/// lock is only taken when the worker row already exists, so it doesn't always reject a
+/// duplicate, and this would then re-enqueue the other worker's running tasks.
+pub async fn reenqueue_reregistered<E>(
+    executor: &mut E,
+    queue: &str,
+    worker: &str,
+) -> Result<u64, Error>
+where
+    for<'e> &'e mut E: Executor<'e, Database = sqlx::Postgres>,
+{
+    let res = sqlx::query_file!("queries/worker/reenqueue_reregistered.sql", queue, worker)
+        .execute(executor)
+        .map_ok(|res| res.rows_affected())
+        .await?;
+    Ok(res)
+}
