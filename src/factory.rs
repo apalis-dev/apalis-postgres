@@ -65,9 +65,11 @@
 //! [`StreamStrategy`]: apalis_core::backend::ext::poll_strategy::StreamStrategy
 use std::{
     collections::HashMap,
+    convert::Infallible,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
+    time::Duration,
 };
 
 use crate::{PgTaskId, PostgresStorage, config::Config, pubsub::InsertEvent};
@@ -131,37 +133,48 @@ impl PostgresStorageFactory {
         let instances = registry.clone();
         Self {
             pool,
-            drive: async move {
-                let mut listener = PgListener::connect_with(&p).await.unwrap();
-                listener.listen("apalis::job::insert").await.unwrap();
-                listener
-                    .into_stream()
-                    .filter_map(|notification| {
-                        let instances = instances.clone();
-                        async move {
-                            let pg_notification = notification.ok()?;
-                            let payload = pg_notification.payload();
-                            let ev: InsertEvent = serde_json::from_str(payload).ok()?;
-                            let instances = instances.lock().await;
-                            if instances.get(&ev.job_type).is_some() {
-                                return Some(ev);
-                            }
-                            None
-                        }
-                    })
-                    .for_each(|ev| {
-                        let instances = instances.clone();
-                        async move {
-                            let mut instances = instances.lock().await;
-                            let sender = instances.get_mut(&ev.job_type).unwrap();
-                            sender.send(ev.id).await.unwrap();
-                        }
-                    })
-                    .await;
-            }
-            .boxed()
-            .shared(),
+            drive: drive_listener(p, instances).boxed().shared(),
             registry,
+        }
+    }
+}
+
+/// Delay before reconnecting the notification listener after it fails.
+const LISTENER_RECONNECT_DELAY: Duration = Duration::from_secs(1);
+
+/// Runs the shared notification listener, reconnecting after failures until the pool closes.
+///
+/// Backends created by the factory are woken only by these notifications, so
+/// the listener must outlive transient connection errors such as a database
+/// restart.
+async fn drive_listener(pool: PgPool, instances: Arc<Mutex<HashMap<String, Sender<PgTaskId>>>>) {
+    loop {
+        match listen(&pool, &instances).await {
+            Err(sqlx::Error::PoolClosed) => return,
+            Err(error) => {
+                tracing::warn!(?error, "notification listener failed, reconnecting");
+            }
+            Ok(never) => match never {},
+        }
+        apalis_core::timer::sleep(LISTENER_RECONNECT_DELAY).await;
+    }
+}
+
+/// Forwards job insert notifications to the matching backend until the listener fails.
+async fn listen(
+    pool: &PgPool,
+    instances: &Mutex<HashMap<String, Sender<PgTaskId>>>,
+) -> Result<Infallible, sqlx::Error> {
+    let mut listener = PgListener::connect_with(pool).await?;
+    listener.listen("apalis::job::insert").await?;
+    loop {
+        let notification = listener.recv().await?;
+        let Ok(ev) = serde_json::from_str::<InsertEvent>(notification.payload()) else {
+            continue;
+        };
+        if let Some(sender) = instances.lock().await.get_mut(&ev.job_type) {
+            // A closed channel only means that backend was dropped; keep serving the others.
+            let _ = sender.send(ev.id).await;
         }
     }
 }
@@ -206,7 +219,7 @@ impl<Args> BackendFactory<Args> for PostgresStorageFactory {
         Ok(PostgresStorage::new(&self.pool)
             .with_config(config)
             .poll_with_stream(SharedFetcher {
-                poller: self.drive.clone(),
+                poller: Some(self.drive.clone()),
                 receiver: Arc::new(Mutex::new(rx)),
             }))
     }
@@ -225,7 +238,8 @@ impl<Args> BackendFactory<Args> for PostgresStorageFactory {
 /// [`Stream`]: futures::Stream
 #[derive(Clone, Debug)]
 pub struct SharedFetcher {
-    poller: Shared<BoxFuture<'static, ()>>,
+    // Cleared once the listener finishes, because polling a completed `Shared` again panics.
+    poller: Option<Shared<BoxFuture<'static, ()>>>,
     receiver: Arc<Mutex<Receiver<PgTaskId>>>,
 }
 
@@ -234,7 +248,11 @@ impl Stream for SharedFetcher {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         // Keep the poller alive by polling it, but ignoring the output
-        let _ = this.poller.poll_unpin(cx);
+        if let Some(poller) = &mut this.poller
+            && poller.poll_unpin(cx).is_ready()
+        {
+            this.poller = None;
+        }
 
         // Delegate actual items to receiver
         let mut receiver = this.receiver.try_lock();
@@ -252,12 +270,28 @@ mod tests {
 
     use apalis_core::{
         backend::TaskSink,
-        error::BoxDynError,
+        error::{BoxDynError, WorkerError},
+        monitor::Monitor,
         worker::{builder::WorkerBuilder, context::WorkerContext},
     };
     use futures::stream;
 
     use super::*;
+
+    #[test]
+    fn fetcher_keeps_polling_after_listener_finishes() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut fetcher = SharedFetcher {
+            poller: Some(futures::future::ready(()).boxed().shared()),
+            receiver: Arc::new(Mutex::new(rx)),
+        };
+        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+
+        // The second poll used to panic with "Shared future polled again after completion".
+        assert!(fetcher.poll_next_unpin(&mut cx).is_pending());
+        assert!(fetcher.poll_next_unpin(&mut cx).is_pending());
+        assert!(fetcher.poller.is_none());
+    }
 
     #[tokio::test]
     async fn basic_worker() {
@@ -293,5 +327,111 @@ mod tests {
             .backend(map_store)
             .build(send_reminder);
         tokio::try_join!(int_worker.run(), map_worker.run()).unwrap();
+    }
+
+    /// Application name for the factory's connections, so the test can find and kill them.
+    const TEST_APP: &str = "apalis-listener-reconnect-test";
+
+    /// Returns the pid of the factory's `LISTEN` connection once it's connected, ignoring
+    /// `previous`.
+    async fn wait_for_listener(admin: &PgPool, previous: Option<i32>) -> i32 {
+        let find = async {
+            loop {
+                let pid: Option<i32> = sqlx::query_scalar(
+                    "SELECT pid FROM pg_stat_activity \
+                     WHERE application_name = $1 AND query LIKE 'LISTEN %' \
+                     AND pid IS DISTINCT FROM $2",
+                )
+                .bind(TEST_APP)
+                .bind(previous)
+                .fetch_optional(admin)
+                .await
+                .unwrap();
+                if let Some(pid) = pid {
+                    return pid;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), find)
+            .await
+            .expect("listener didn't reconnect")
+    }
+
+    async fn stop_after_task(_: u32, wrk: WorkerContext) -> Result<(), BoxDynError> {
+        wrk.stop().unwrap();
+        Ok(())
+    }
+
+    /// Workers keep receiving jobs after the shared listener loses its connection and can't
+    /// reconnect straight away, as when the database restarts.
+    #[tokio::test]
+    async fn worker_survives_listener_disconnect() {
+        let url = std::env::var("DATABASE_URL").unwrap();
+        let admin = PgPool::connect(&url).await.unwrap();
+
+        // While `offline` is set, new connections from the factory's pool fail, so the pool
+        // returns `PoolTimedOut`.
+        let offline = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let options = url
+            .parse::<sqlx::postgres::PgConnectOptions>()
+            .unwrap()
+            .application_name(TEST_APP);
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(500))
+            .after_connect({
+                let offline = offline.clone();
+                move |_, _| {
+                    let offline = offline.load(std::sync::atomic::Ordering::SeqCst);
+                    Box::pin(async move {
+                        if offline {
+                            return Err(sqlx::Error::Protocol("database offline".to_owned()));
+                        }
+                        Ok(())
+                    })
+                }
+            })
+            .connect_with(options)
+            .await
+            .unwrap();
+
+        let mut factory = PostgresStorageFactory::new(pool);
+        let mut backend = factory
+            .create_with_config(Config::default().queue("listener-disconnect"))
+            .unwrap();
+        // Restart workers after backend errors, as an application would, but not after panics.
+        let monitor = Monitor::new()
+            .should_restart(|_, err| matches!(err, WorkerError::BackendError(_)))
+            .register({
+                let backend = backend.clone();
+                move |_| {
+                    WorkerBuilder::new("listener-disconnect")
+                        .backend(backend.clone())
+                        .build(stop_after_task)
+                }
+            });
+        let monitor = tokio::spawn(monitor.run());
+        let listener = wait_for_listener(&admin, None).await;
+
+        // Take the database "offline" for the factory: kill its connections and fail reconnects
+        // until the listener's reconnect gives up.
+        offline.store(true, std::sync::atomic::Ordering::SeqCst);
+        sqlx::query(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1",
+        )
+        .bind(TEST_APP)
+        .execute(&admin)
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        offline.store(false, std::sync::atomic::Ordering::SeqCst);
+
+        wait_for_listener(&admin, Some(listener)).await;
+        backend.push(1).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), monitor)
+            .await
+            .expect("worker didn't process the job")
+            .unwrap()
+            .unwrap();
     }
 }
